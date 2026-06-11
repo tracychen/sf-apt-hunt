@@ -4,7 +4,7 @@
 
 Build a public, anonymous, local-first apartment-search map for San Francisco. The app combines editable neighborhood/corridor geometry, AI-assisted map proposals, and sourced current-listing research. The first version uses Next.js App Router, TypeScript, Leaflet, OpenAI Responses API, and Google Geocoding.
 
-The OpenAI key is user-provided. It is stored in `sessionStorage` by default, with an explicit "remember on this device" option that stores it in `localStorage`. The app never stores OpenAI keys server-side. Google Geocoding uses a server-owned `GOOGLE_MAPS_API_KEY` with route-level caps and SF-bound validation.
+The OpenAI key is user-provided. It is stored in `sessionStorage` by default, with an explicit "remember on this device" option that stores it in `localStorage`. The app never stores OpenAI keys server-side. Google Geocoding uses a server-owned `GOOGLE_MAPS_API_KEY` with nonce-bound requests, durable serverless rate limits, route-level caps, and SF-bound validation.
 
 ## Goals
 
@@ -19,7 +19,7 @@ The OpenAI key is user-provided. It is stored in `sessionStorage` by default, wi
 
 ## Non-Goals
 
-- Do not build accounts or a shared database in v1.
+- Do not build accounts or a shared app database in v1. A durable shared rate-limit store is still required for public serverless geocoding protection.
 - Do not use a server-owned OpenAI key for public anonymous traffic.
 - Do not scrape Zillow, Craigslist, Apartments.com, or listing sites directly.
 - Do not add explicit crime datasets or numeric safety rankings in v1.
@@ -47,11 +47,13 @@ Server route handlers:
   - Accepts the user's OpenAI key per request.
   - Accepts selected neighborhoods/corridors, budget, beds, move timing, short-term/furnished preferences, and natural-language context.
   - Uses OpenAI hosted `web_search` for current listing research.
-  - Returns structured listing candidates, source summary, and caveats.
+  - Returns structured listing candidates, source summary, citations, caveats, and a short-lived geocode nonce for candidates that may be geocoded.
 
 - `POST /api/geocode/listing`
   - Uses server-owned `GOOGLE_MAPS_API_KEY`.
-  - Accepts normalized listing address/intersection candidates produced by listing search.
+  - Accepts only normalized listing address/intersection candidates produced by a recent listing search.
+  - Requires a signed, short-lived geocode nonce from `/api/ai/listing-search`.
+  - Enforces durable per-IP and per-session quotas through a serverless-safe shared store.
   - Caps geocoding attempts per search.
   - Rejects results outside San Francisco bounds.
   - Returns coordinates with confidence and exact/approximate marker state.
@@ -94,17 +96,35 @@ type TargetPoint = {
   notes: string[];
 };
 
+type SourceCitation = {
+  url: string;
+  title: string | null;
+  sourceDomain: string;
+};
+
 type ListingCandidate = {
   id: string;
   title: string;
   url: string;
   sourceDomain: string;
   neighborhoodGuess: string;
+  locationText: string | null;
+  geocodeQuery: string | null;
+  locationConfidence: "none" | "low" | "medium" | "high";
+  coordinates: [number, number] | null;
+  geocodeStatus:
+    | "not_attempted"
+    | "geocoded_exact"
+    | "geocoded_approximate"
+    | "failed"
+    | "outside_sf";
+  markerPrecision: "none" | "exact" | "approximate";
   priceMonthly: number | null;
   beds: "studio" | "1br" | "unknown";
   shortTermSignal: boolean;
   furnishedSignal: boolean;
   fitScore: 1 | 2 | 3 | 4 | 5;
+  citations: SourceCitation[];
   caveats: string[];
 };
 
@@ -113,6 +133,18 @@ type MapPatchProposal = {
   operations: Array<
     | { type: "addTarget"; target: TargetPoint }
     | { type: "addCorridor"; corridor: TargetCorridor }
+    | {
+        type: "updateCorridorPriority";
+        corridorId: string;
+        priority: "high" | "medium" | "low";
+        reason: string;
+      }
+    | {
+        type: "updateTargetPriority";
+        targetId: string;
+        priority: "high" | "medium" | "low";
+        reason: string;
+      }
     | {
         type: "updateZoneScores";
         zoneId: string;
@@ -132,6 +164,12 @@ type MapPatchProposal = {
   requiresUserReview: true;
 };
 ```
+
+Coordinate convention:
+
+- GeoJSON geometry coordinates use `[longitude, latitude]`.
+- `TargetPoint.coordinates` and `ListingCandidate.coordinates` also use `[longitude, latitude]`.
+- The UI may display coordinates as latitude/longitude, but storage and validation use longitude/latitude.
 
 Seed data ships locally for:
 
@@ -192,11 +230,13 @@ OpenAI usage:
 
 - Use the Responses API.
 - Default model is `gpt-5.5`, configurable by code constant or environment setting if access differs.
+- Set `store: false` for Responses calls where the API supports it.
 - Use structured outputs for route responses.
 - Use low reasoning effort for normal map edits.
 - Use medium reasoning effort for listing searches and comparison/prioritization tasks.
 - Use hosted `web_search` for explicit current-listing requests.
 - Use `tool_choice: "required"` when the user asks for current listings.
+- Preserve and display clickable web-search citations, including citations for source summaries and listing-specific claims.
 
 The response shape includes:
 
@@ -217,12 +257,18 @@ Candidate fields:
 - URL
 - source domain
 - neighborhood guess
+- location text
+- normalized geocode query
+- location confidence
+- coordinates and geocode status when available
+- marker precision
 - monthly price
 - beds
 - short-term signal
 - furnished signal
 - fit score
 - why it fits
+- citations
 - caveats
 
 The route should include query constraints such as:
@@ -247,6 +293,11 @@ Rules:
 
 - Use `GOOGLE_MAPS_API_KEY` only on the server.
 - Only geocode likely addresses or intersections from listing candidates.
+- Do not expose a general-purpose geocoding proxy.
+- Require a signed, short-lived nonce minted by `/api/ai/listing-search`.
+- Bind each nonce to the listing-search request, candidate IDs, and a capped number of geocode attempts.
+- Enforce durable per-IP and per-session quotas in a serverless-safe shared store such as a Redis-compatible Vercel Marketplace integration.
+- Fail closed when the rate-limit store is unavailable in production.
 - Do not expose the Google key to the browser.
 - Cap geocode attempts per listing search.
 - Cache successful and failed geocode results in browser storage by normalized address.
@@ -265,6 +316,29 @@ OpenAI key handling:
 - An explicit "remember on this device" toggle stores the key in `localStorage`.
 - The key is sent to route handlers per request.
 - Route handlers must not log, store, or echo the key.
+- Route handlers must redact OpenAI keys from request logs, error logs, traces, and telemetry.
+- Route handlers must not include raw request bodies in thrown errors or structured error responses.
+- Responses API calls use `store: false` where supported.
+
+## Environment Configuration
+
+Required for public deployment:
+
+- `GOOGLE_MAPS_API_KEY`: server-only Google Geocoding key restricted to the Geocoding API.
+- Rate-limit store credentials for a Redis-compatible serverless store, such as `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+- `GEOCODE_NONCE_SECRET`: server-only secret for signing short-lived geocoding nonces.
+
+Optional:
+
+- `OPENAI_MODEL`: model override when the default `gpt-5.5` is unavailable for a user.
+- `NEXT_PUBLIC_TILE_URL`: OSM-compatible tile URL override.
+- `NEXT_PUBLIC_TILE_ATTRIBUTION`: attribution text for the configured tile source.
+
+Production behavior:
+
+- Real listing geocoding is disabled when Google or rate-limit configuration is missing.
+- Missing Google config can still return listing cards without pins.
+- Missing rate-limit config must make geocoding fail closed in production.
 
 ## Safety Context
 
@@ -293,6 +367,9 @@ Runtime validation rejects:
 - oversized user messages
 - oversized map state payloads
 - listing results without source URLs
+- listing results without citations for listing-specific claims
+- listing coordinates outside SF bounds
+- geocoding requests without a valid recent nonce
 
 Route guardrails:
 
@@ -301,6 +378,9 @@ Route guardrails:
 - Require a user-provided OpenAI key for real AI/listing calls.
 - Return structured errors for missing keys or missing Google config.
 - Limit listing and geocoding work per request.
+- Enforce durable per-IP and per-session geocoding quotas before public deployment.
+- Fail closed for geocoding when quota checks cannot run.
+- Redact secret-bearing fields from telemetry and error reporting.
 
 ## UI Direction
 
@@ -319,6 +399,13 @@ Design constraints:
 
 ## Testing
 
+Tooling:
+
+- Use Vitest for unit and route tests.
+- Use Playwright for browser tests.
+- Mock OpenAI and Google HTTP calls in tests.
+- Stabilize Leaflet browser tests by using a fixed viewport, deterministic seed data, and intercepted tile requests or a local/static tile stub.
+
 Unit tests:
 
 - Runtime schema validation for map zones, corridors, target points, listing candidates, and proposals.
@@ -326,7 +413,10 @@ Unit tests:
 - Invalid coordinates reject.
 - Unknown zone ID rejects.
 - `replaceZoneGeometry` outside SF rejects.
+- `updateCorridorPriority` and `updateTargetPriority` validate IDs and priority values.
 - Google geocoding outside-SF response rejects.
+- Geocoding nonce validation rejects missing, expired, mismatched, and over-cap tokens.
+- OpenAI-key redaction covers request, response, and error paths.
 
 Mocked route tests:
 
@@ -336,6 +426,8 @@ Mocked route tests:
 - Empty/noisy web-search result returns clear caveats.
 - Missing OpenAI key returns disabled/error state.
 - Missing Google key returns listing results without pins plus a config caveat.
+- Web-search citations are preserved and rendered as clickable source links.
+- Rate-limit-store outage makes geocoding fail closed in production mode.
 
 Browser tests:
 
@@ -366,13 +458,14 @@ Update README with:
 - OpenAI BYO-key behavior
 - public deployment caveats
 - Google Cloud quota/API restriction recommendations
+- serverless rate-limit store setup for geocoding protection
 - OSM tile attribution and usage-policy note
 - no direct listing-site scraping policy
 
 ## Open Questions Deferred
 
 - Whether to add user accounts later.
-- Whether to add durable server-side rate limiting later.
+- Whether to add broader durable rate limiting for non-geocoding routes later.
 - Whether to replace OSM-compatible tiles with a paid tile provider later.
 - Whether to add a DataSF safety-context panel later.
 - Whether to add a shared database for map versions later.
