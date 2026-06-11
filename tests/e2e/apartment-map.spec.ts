@@ -1,9 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const transparentPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
 );
+const mapStateStorageKey = "sf-apt-hunt:map-state:v1";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/{tile.openstreetmap.org,*.tile.openstreetmap.org}/**", async (route) => {
@@ -210,3 +211,73 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
   await expect(page.getByText("1 listing pin.")).toBeVisible();
   expect(geocodeSessionHeader).toBeTruthy();
 });
+
+test("undoes applied map changes with Ctrl+Z or Cmd+Z", async ({ page }) => {
+  await page.route("**/api/ai/map-assistant", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer sk-test");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        explanation: "I can raise Polk priority.",
+        intent: "prioritization",
+        proposal: {
+          summary: "Raise Polk priority.",
+          operations: [
+            {
+              type: "updateCorridorPriority",
+              corridorId: "polk",
+              priority: "high",
+              reason: "Closer to the requested north-side search area.",
+            },
+          ],
+          confidence: "high",
+          requiresUserReview: true,
+        },
+        confidence: "high",
+        caveats: [],
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+
+  await applyPolkPriorityProposal(page);
+  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("high");
+
+  await page.keyboard.press("Control+Z");
+  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("medium");
+
+  await applyPolkPriorityProposal(page);
+  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("high");
+
+  await page.keyboard.press("Meta+Z");
+  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("medium");
+});
+
+async function applyPolkPriorityProposal(page: Page) {
+  await page.getByLabel("Ask the assistant").fill("Make Polk corridor high priority");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Raise Polk priority.")).toBeVisible();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+}
+
+async function readCorridorPriority(page: Page, corridorId: string) {
+  return page.evaluate(
+    ({ key, id }) => {
+      const storedMapState = window.localStorage.getItem(key);
+      if (!storedMapState) {
+        return null;
+      }
+
+      const mapState = JSON.parse(storedMapState) as {
+        corridors?: Array<{ id: string; priority: string }>;
+      };
+      return mapState.corridors?.find((corridor) => corridor.id === id)?.priority ?? null;
+    },
+    { key: mapStateStorageKey, id: corridorId },
+  );
+}

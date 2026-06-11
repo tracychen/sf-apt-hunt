@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type {
   Coordinate,
   GeocodeAuthorization,
@@ -141,7 +141,7 @@ export function ApartmentMapApp() {
     saveMapState(nextState);
   }
 
-  function undoLastEdit() {
+  const undoLastEdit = useCallback(() => {
     const previous = mapHistory.history.at(-1);
     if (!previous) {
       return;
@@ -149,7 +149,21 @@ export function ApartmentMapApp() {
 
     dispatchMapHistory({ type: "undo" });
     saveMapState(previous);
-  }
+  }, [mapHistory.history]);
+
+  useEffect(() => {
+    function handleKeyboardUndo(event: KeyboardEvent) {
+      if (!isUndoKeyboardShortcut(event) || isEditableKeyboardTarget(event.target) || !canUndo) {
+        return;
+      }
+
+      event.preventDefault();
+      undoLastEdit();
+    }
+
+    window.addEventListener("keydown", handleKeyboardUndo);
+    return () => window.removeEventListener("keydown", handleKeyboardUndo);
+  }, [canUndo, undoLastEdit]);
 
   function resetLocalMap() {
     dispatchMapHistory({ type: "reset" });
@@ -305,6 +319,28 @@ function resetMapEntity(mapState: MapState, selectedEntity: NonNullable<Selected
       };
     }
   }
+}
+
+function isUndoKeyboardShortcut(event: KeyboardEvent) {
+  return (
+    event.key.toLowerCase() === "z" &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.shiftKey &&
+    !event.altKey
+  );
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest("input, textarea, select")) {
+    return true;
+  }
+
+  const contentEditableTarget = target.closest("[contenteditable]");
+  return contentEditableTarget !== null && contentEditableTarget.getAttribute("contenteditable") !== "false";
 }
 
 type GeocodeListingCandidateOptions = {
