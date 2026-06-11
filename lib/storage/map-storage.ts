@@ -6,6 +6,7 @@ export { canonicalizeGeocodeQuery as canonicalizeGeocodeCacheQuery } from "@/lib
 
 const mapStateStorageKey = "sf-apt-hunt:map-state:v1";
 const geocodeCacheStorageKey = "sf-apt-hunt:geocode-cache:v1";
+const MAX_GEOCODE_CACHE_ENTRIES = 500;
 
 type StorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
@@ -199,6 +200,25 @@ export function saveGeocodeCacheEntry(
   }
 
   const cache = cacheResult.cache;
-  cache[canonicalizeGeocodeQuery(query)] = entry;
-  safeSetItem(localStorage, geocodeCacheStorageKey, JSON.stringify(cache));
+  const canonicalQuery = canonicalizeGeocodeQuery(query);
+  // Re-insert so the freshly written query is treated as the most recent entry
+  // (object key order is insertion order), then drop the oldest over the cap.
+  delete cache[canonicalQuery];
+  cache[canonicalQuery] = entry;
+  safeSetItem(localStorage, geocodeCacheStorageKey, JSON.stringify(capGeocodeCache(cache)));
+}
+
+function capGeocodeCache(cache: GeocodeCache): GeocodeCache {
+  const keys = Object.keys(cache);
+  if (keys.length <= MAX_GEOCODE_CACHE_ENTRIES) {
+    return cache;
+  }
+
+  const keepFrom = keys.length - MAX_GEOCODE_CACHE_ENTRIES;
+  const capped: GeocodeCache = {};
+  for (const key of keys.slice(keepFrom)) {
+    capped[key] = cache[key];
+  }
+
+  return capped;
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { mapStateSchema } from "@/lib/domain/schemas";
 import type { Coordinate, MapPatchProposal, MapState } from "@/lib/domain/types";
 import { Button } from "@/components/ui/button";
 
@@ -180,12 +181,13 @@ export function ProposalReviewDialog({
         body: JSON.stringify({ mapState, proposal }),
       });
       const body: unknown = await response.json().catch(() => null);
+      const nextState = response.ok ? parseApplyProposalResponse(body) : null;
 
-      if (!response.ok || !isApplyProposalResponse(body)) {
+      if (!nextState) {
         throw new Error("The proposed changes could not be applied.");
       }
 
-      onApply(body.state);
+      onApply(nextState);
     } catch (applyError) {
       setError(
         applyError instanceof Error
@@ -261,13 +263,15 @@ export function ProposalReviewDialog({
   );
 }
 
-function isApplyProposalResponse(value: unknown): value is { ok: true; state: MapState } {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    (value as { ok?: unknown }).ok === true &&
-    typeof (value as { state?: unknown }).state === "object" &&
-    (value as { state?: unknown }).state !== null
-  );
+function parseApplyProposalResponse(value: unknown): MapState | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  if ((value as { ok?: unknown }).ok !== true) {
+    return null;
+  }
+
+  const parsed = mapStateSchema.safeParse((value as { state?: unknown }).state);
+  return parsed.success ? parsed.data : null;
 }

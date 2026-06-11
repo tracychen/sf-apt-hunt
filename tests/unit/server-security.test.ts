@@ -250,10 +250,34 @@ describe("geocode query authorization", () => {
 });
 
 describe("fixed-window rate limit", () => {
+  it("initialises the counter window atomically with SET NX EX", async () => {
+    vi.setSystemTime(new Date("2026-06-11T19:00:00.000Z"));
+
+    const redis = {
+      set: vi.fn().mockResolvedValue("OK"),
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
+      ttl: vi.fn().mockResolvedValue(60),
+    };
+
+    const result = await checkFixedWindowRateLimit({
+      redis: redis as unknown as Parameters<typeof checkFixedWindowRateLimit>[0]["redis"],
+      key: "rate-limit:test",
+      limit: 5,
+      windowSeconds: 60,
+    });
+
+    expect(redis.set).toHaveBeenCalledWith("rate-limit:test", 0, { nx: true, ex: 60 });
+    expect(result.ok).toBe(true);
+    expect(result.remaining).toBe(4);
+    expect(result.resetAt).toEqual(new Date("2026-06-11T19:01:00.000Z"));
+  });
+
   it("repairs missing Redis TTLs on over-limit keys", async () => {
     vi.setSystemTime(new Date("2026-06-11T19:00:00.000Z"));
 
     const redis = {
+      set: vi.fn().mockResolvedValue(null),
       incr: vi.fn().mockResolvedValue(6),
       expire: vi.fn().mockResolvedValue(1),
       ttl: vi.fn().mockResolvedValue(-1),

@@ -152,6 +152,7 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
         }
 
         nextState = {
+          ...nextState,
           zones: nextState.zones.map((zone) =>
             zone.id === operation.entityId
               ? { ...zone, notes: [...zone.notes, operation.note] }

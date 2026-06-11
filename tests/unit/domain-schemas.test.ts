@@ -70,6 +70,46 @@ describe("domain schemas", () => {
     ).not.toThrow();
   });
 
+  it("rejects non-http(s) listing and citation URLs", () => {
+    const baseCandidate = {
+      id: "listing-1",
+      title: "Studio near Fillmore",
+      sourceDomain: "example.com",
+      neighborhoodGuess: "Lower Pac Heights",
+      locationText: "Fillmore St near California St",
+      geocodeQuery: "Fillmore St and California St, San Francisco, CA",
+      locationConfidence: "medium",
+      coordinates: null,
+      geocodeStatus: "not_attempted",
+      markerPrecision: "none",
+      priceMonthly: 2850,
+      beds: "studio",
+      shortTermSignal: false,
+      furnishedSignal: false,
+      fitScore: 4,
+      whyItFits: "Within budget and close to target corridor.",
+      citations: [
+        { url: "https://example.com/listing-1", title: "Studio", sourceDomain: "example.com" },
+      ],
+      caveats: [],
+    };
+
+    for (const badUrl of [
+      "javascript:alert(document.cookie)",
+      "data:text/html,<script>1</script>",
+      "vbscript:msgbox(1)",
+    ]) {
+      expect(() => listingCandidateSchema.parse({ ...baseCandidate, url: badUrl })).toThrow();
+    }
+
+    expect(() =>
+      listingCandidateSchema.parse({ ...baseCandidate, url: "https://example.com/listing-1" }),
+    ).not.toThrow();
+    expect(() =>
+      listingCandidateSchema.parse({ ...baseCandidate, url: "http://example.com/listing-1" }),
+    ).not.toThrow();
+  });
+
   it("requires whyItFits on listing candidates", () => {
     expect(() =>
       listingSearchResponseSchema.parse({

@@ -37,7 +37,7 @@ export function isPolygonInSfBounds(geometry: PolygonGeometry) {
 }
 
 export function isLineStringInSfBounds(geometry: LineStringGeometry) {
-  return geometry.coordinates.every(isCoordinateInSfBounds);
+  return geometry.coordinates.length >= 2 && geometry.coordinates.every(isCoordinateInSfBounds);
 }
 
 export function closePolygonRing(ring: Array<[number, number]>) {

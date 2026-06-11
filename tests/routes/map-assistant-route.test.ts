@@ -160,6 +160,27 @@ describe("POST /api/ai/map-assistant", () => {
     ]);
   });
 
+  it("rejects oversized request bodies before calling OpenAI", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const response = await POST(
+      createRequest(
+        {
+          message: "x".repeat(300_000),
+          mapState: seedMapState,
+        },
+        "Bearer sk-test-map",
+      ),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Map assistant request is too large.",
+    });
+    expect(response.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects structured output with an unsupported intent", async () => {
     mockOpenAiResponse({
       output_text: JSON.stringify({

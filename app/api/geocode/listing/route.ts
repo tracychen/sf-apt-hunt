@@ -6,6 +6,7 @@ import { geocodeListingLocation } from "@/lib/server/google-geocode";
 import { verifyGeocodeAuthorization } from "@/lib/server/geocode-auth";
 import { checkFixedWindowRateLimit, createRedisFromEnv } from "@/lib/server/rate-limit";
 import { redactSecrets } from "@/lib/server/redaction";
+import { RequestBodyTooLargeError, readJsonRequestBody } from "@/lib/server/request-body";
 
 const geocodeListingRequestSchema = z
   .object({
@@ -17,6 +18,7 @@ const geocodeListingRequestSchema = z
 
 const GEOCODE_RATE_LIMIT = 20;
 const GEOCODE_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const MAX_GEOCODE_REQUEST_BYTES = 16 * 1024;
 
 export async function POST(request: Request) {
   try {
@@ -30,7 +32,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = geocodeListingRequestSchema.parse(await request.json());
+    const body = geocodeListingRequestSchema.parse(
+      await readJsonRequestBody(request, MAX_GEOCODE_REQUEST_BYTES),
+    );
     const verification = verifyGeocodeAuthorization({
       secret: nonceSecret,
       nonce: body.nonce,
@@ -90,13 +94,20 @@ export async function POST(request: Request) {
 
     if (geocode.status !== "ok") {
       return Response.json(
-        { ok: false, status: geocode.status, error: geocode.error },
+        { ok: false, status: geocode.status, error: redactSecrets(geocode.error) },
         { status: 400 },
       );
     }
 
     return Response.json({ ok: true, geocode });
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json(
+        { ok: false, error: "Geocode request is too large." },
+        { status: 413 },
+      );
+    }
+
     return Response.json(
       {
         ok: false,

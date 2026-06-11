@@ -7,6 +7,7 @@ import {
   saveOpenAiKey,
 } from "@/lib/storage/api-key-storage";
 import {
+  canonicalizeGeocodeCacheQuery,
   clearMapState,
   loadGeocodeCache,
   loadMapState,
@@ -353,6 +354,60 @@ describe("map storage", () => {
         markerPrecision: "approximate",
       },
     });
+  });
+
+  it("evicts the oldest geocode cache entries beyond the size cap", () => {
+    const localStorage = new FakeStorage();
+    const total = 520;
+
+    for (let index = 0; index < total; index += 1) {
+      saveGeocodeCacheEntry(
+        `Query number ${index}`,
+        { coordinates: [-122.4 - index * 0.0001, 37.7], markerPrecision: "exact" },
+        localStorage,
+      );
+    }
+
+    const cache = loadGeocodeCache(localStorage);
+
+    expect(Object.keys(cache)).toHaveLength(500);
+    expect(cache[canonicalizeGeocodeCacheQuery("Query number 0")]).toBeUndefined();
+    expect(cache[canonicalizeGeocodeCacheQuery("Query number 19")]).toBeUndefined();
+    expect(cache[canonicalizeGeocodeCacheQuery("Query number 20")]).toBeDefined();
+    expect(cache[canonicalizeGeocodeCacheQuery("Query number 519")]).toBeDefined();
+  });
+
+  it("keeps a re-saved query as the most recent entry", () => {
+    const localStorage = new FakeStorage();
+
+    for (let index = 0; index < 500; index += 1) {
+      saveGeocodeCacheEntry(
+        `Query number ${index}`,
+        { coordinates: [-122.4 - index * 0.0001, 37.7], markerPrecision: "exact" },
+        localStorage,
+      );
+    }
+
+    // Re-touch the oldest entry so it becomes most-recent, then push one more.
+    saveGeocodeCacheEntry(
+      "Query number 0",
+      { coordinates: [-122.4, 37.7], markerPrecision: "approximate" },
+      localStorage,
+    );
+    saveGeocodeCacheEntry(
+      "Query number 500",
+      { coordinates: [-122.5, 37.7], markerPrecision: "exact" },
+      localStorage,
+    );
+
+    const cache = loadGeocodeCache(localStorage);
+
+    expect(Object.keys(cache)).toHaveLength(500);
+    expect(cache[canonicalizeGeocodeCacheQuery("Query number 0")]).toEqual({
+      coordinates: [-122.4, 37.7],
+      markerPrecision: "approximate",
+    });
+    expect(cache[canonicalizeGeocodeCacheQuery("Query number 1")]).toBeUndefined();
   });
 
   it("does not throw without browser storage", () => {

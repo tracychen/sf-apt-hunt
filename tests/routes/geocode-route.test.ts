@@ -205,9 +205,54 @@ describe("POST /api/geocode/listing", () => {
     });
     expect(geocodeListingLocationMock).not.toHaveBeenCalled();
   });
+
+  it("rejects oversized geocode request bodies before geocoding", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("GOOGLE_MAPS_API_KEY", "google-key");
+    vi.stubEnv("GEOCODE_NONCE_SECRET", "test-secret");
+
+    const response = await POST(
+      makeRequest({
+        nonce: createNonce("Fillmore and California"),
+        candidateId: "listing-1",
+        geocodeQuery: `Fillmore and California ${"x".repeat(20_000)}`,
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Geocode request is too large.",
+    });
+    expect(response.status).toBe(413);
+    expect(geocodeListingLocationMock).not.toHaveBeenCalled();
+  });
+
+  it("redacts provider secrets leaked in upstream geocode errors", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("GOOGLE_MAPS_API_KEY", "google-key");
+    vi.stubEnv("GEOCODE_NONCE_SECRET", "test-secret");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    geocodeListingLocationMock.mockResolvedValue({
+      status: "failed",
+      error:
+        "The provided API key is invalid. Key: AIzaSyA1234567890abcdefghijklmnopqrstuvwxyzAB",
+    });
+
+    const response = await POST(
+      makeRequest({
+        nonce: createNonce("Fillmore and California"),
+        candidateId: "listing-1",
+        geocodeQuery: "Fillmore and California",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      ok: false,
+      status: "failed",
+      error: "The provided API key is invalid. Key: [REDACTED]",
+    });
+  });
 });
-    createRedisFromEnvMock.mockReturnValue(null);
-
-    createRedisFromEnvMock.mockReturnValue(null);
-
-    createRedisFromEnvMock.mockReturnValue(null);

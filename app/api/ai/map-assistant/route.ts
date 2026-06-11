@@ -7,6 +7,9 @@ import {
   getOpenAiKeyFromRequest,
 } from "@/lib/server/openai";
 import { redactSecrets } from "@/lib/server/redaction";
+import { RequestBodyTooLargeError, readJsonRequestBody } from "@/lib/server/request-body";
+
+const MAX_MAP_ASSISTANT_REQUEST_BYTES = 256 * 1024;
 
 const mapAssistantRequestSchema = z
   .object({
@@ -35,7 +38,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = mapAssistantRequestSchema.parse(await request.json());
+    const body = mapAssistantRequestSchema.parse(
+      await readJsonRequestBody(request, MAX_MAP_ASSISTANT_REQUEST_BYTES),
+    );
     const openAiResponse = await createOpenAiResponse({
       apiKey,
       payload: {
@@ -94,6 +99,13 @@ export async function POST(request: Request) {
 
     return Response.json(parsedResponse);
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json(
+        { ok: false, error: "Map assistant request is too large." },
+        { status: 413 },
+      );
+    }
+
     return Response.json(
       {
         ok: false,
@@ -117,6 +129,12 @@ function getErrorDetails(error: unknown) {
   return error;
 }
 
+// OpenAI strict json_schema requires every property in `required`, so the
+// updateZoneScores score fields are declared required-and-nullable in the JSON
+// schema. The Zod domain schema instead treats absent scores as "no change"
+// (`.optional()`). This bridges the two by dropping model-supplied `null`s back
+// to absent before Zod validation. See the "keep three representations in sync"
+// note in AGENTS.md.
 function normalizeMapAssistantResponse(value: unknown) {
   if (!isRecord(value) || !isRecord(value.proposal) || !Array.isArray(value.proposal.operations)) {
     return value;

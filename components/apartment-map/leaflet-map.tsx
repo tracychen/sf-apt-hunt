@@ -512,7 +512,7 @@ export function LeafletMap({
                 <div className="space-y-1 text-sm">
                   <p className="font-semibold">{corridor.name}</p>
                   <p>{corridor.priority} priority corridor</p>
-                  <p>{corridor.notes[0]}</p>
+                  {corridor.notes[0] ? <p>{corridor.notes[0]}</p> : null}
                 </div>
               </Popup>
             </CorridorPolyline>

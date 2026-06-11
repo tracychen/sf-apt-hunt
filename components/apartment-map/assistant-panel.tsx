@@ -2,6 +2,7 @@
 
 import { type FormEvent, useMemo, useState } from "react";
 
+import { listingSearchResponseSchema, mapPatchProposalSchema } from "@/lib/domain/schemas";
 import type {
   ListingSearchResponse,
   MapPatchProposal,
@@ -96,13 +97,14 @@ export function AssistantPanel(props: {
       }
 
       if (requestKind === "listing") {
-        if (!isListingSearchResponse(body)) {
+        const listingResponse = parseListingSearchResponse(body);
+        if (!listingResponse) {
           throw new Error("Listing search returned an unexpected response.");
         }
 
         props.onProposalChange(null);
-        props.onListingSearchResponse(body);
-        setStatus(`${body.candidates.length} listing candidates returned.`);
+        props.onListingSearchResponse(listingResponse);
+        setStatus(`${listingResponse.candidates.length} listing candidates returned.`);
         return;
       }
 
@@ -275,11 +277,12 @@ function getFriendlyError(body: unknown, kind: "listing" | "map") {
     : "The map assistant could not create a proposal. Try again with a narrower request.";
 }
 
-function isListingSearchResponse(value: unknown): value is ListingSearchResponse {
-  return isRecord(value) && Array.isArray(value.candidates);
+function parseListingSearchResponse(value: unknown): ListingSearchResponse | null {
+  const parsed = listingSearchResponseSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
-function readProposal(value: unknown) {
+function readProposal(value: unknown): MapPatchProposal | null {
   if (!isRecord(value)) {
     throw new Error("Map assistant returned an unexpected response.");
   }
@@ -288,11 +291,12 @@ function readProposal(value: unknown) {
     return null;
   }
 
-  if (!isRecord(value.proposal) || !Array.isArray(value.proposal.operations)) {
+  const parsed = mapPatchProposalSchema.safeParse(value.proposal);
+  if (!parsed.success) {
     throw new Error("Map assistant returned an unexpected response.");
   }
 
-  return value.proposal as MapPatchProposal;
+  return parsed.data;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

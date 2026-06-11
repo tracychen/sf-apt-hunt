@@ -3,6 +3,7 @@ import { z } from "zod";
 import { mapPatchProposalSchema, mapStateSchema } from "@/lib/domain/schemas";
 import { applyProposal } from "@/lib/map/proposals";
 import { redactSecrets } from "@/lib/server/redaction";
+import { RequestBodyTooLargeError, readJsonRequestBody } from "@/lib/server/request-body";
 
 const applyProposalRequestSchema = z.object({
   mapState: mapStateSchema,
@@ -10,8 +11,6 @@ const applyProposalRequestSchema = z.object({
 });
 
 const MAX_PROPOSAL_REQUEST_BYTES = 256 * 1024;
-
-class RequestBodyTooLargeError extends Error {}
 
 function getErrorDetails(error: unknown) {
   if (error instanceof z.ZodError) {
@@ -25,41 +24,9 @@ function getErrorDetails(error: unknown) {
   return error;
 }
 
-async function readRequestBodyText(request: Request, maxBytes: number) {
-  const reader = request.body?.getReader();
-
-  if (!reader) {
-    return "";
-  }
-
-  const decoder = new TextDecoder();
-  let bytesRead = 0;
-  let body = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      break;
-    }
-
-    bytesRead += value.byteLength;
-
-    if (bytesRead > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      throw new RequestBodyTooLargeError();
-    }
-
-    body += decoder.decode(value, { stream: true });
-  }
-
-  return body + decoder.decode();
-}
-
 export async function POST(request: Request) {
   try {
-    const bodyText = await readRequestBodyText(request, MAX_PROPOSAL_REQUEST_BYTES);
-    const body = JSON.parse(bodyText);
+    const body = await readJsonRequestBody(request, MAX_PROPOSAL_REQUEST_BYTES);
     const { mapState, proposal } = applyProposalRequestSchema.parse(body);
     const result = applyProposal(mapState, proposal);
 

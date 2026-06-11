@@ -117,6 +117,7 @@ export function ApartmentMapApp() {
   const [listings, setListings] = useState<ListingCandidate[]>([]);
   const [listingSearchMeta, setListingSearchMeta] = useState<ListingSearchMeta>(null);
   const geocodeRunIdRef = useRef(0);
+  const geocodeAbortRef = useRef<AbortController | null>(null);
   const mapState = mapHistory.current;
   const canUndo = mapHistory.history.length > 0;
 
@@ -200,6 +201,11 @@ export function ApartmentMapApp() {
   function handleListingSearchResponse(response: ListingSearchResponse) {
     const nextRunId = geocodeRunIdRef.current + 1;
     geocodeRunIdRef.current = nextRunId;
+    // Cancel any in-flight geocoding from a prior search so superseded requests
+    // stop consuming the shared Google geocoding quota.
+    geocodeAbortRef.current?.abort();
+    const abortController = new AbortController();
+    geocodeAbortRef.current = abortController;
     setListingSearchMeta({
       sourceSummary: response.sourceSummary,
       citations: response.citations,
@@ -229,6 +235,7 @@ export function ApartmentMapApp() {
     void geocodeListingCandidates({
       authorization: response.geocodeAuthorization,
       candidates: candidatesToGeocode,
+      signal: abortController.signal,
       onResult: (candidateId, update) => {
         if (geocodeRunIdRef.current !== nextRunId) {
           return;
@@ -346,6 +353,7 @@ function isEditableKeyboardTarget(target: EventTarget | null) {
 type GeocodeListingCandidateOptions = {
   authorization: GeocodeAuthorization;
   candidates: ListingCandidate[];
+  signal?: AbortSignal;
   onResult: (candidateId: string, update: Partial<ListingCandidate>) => void;
 };
 
@@ -418,11 +426,16 @@ function selectCandidatesToGeocode(
 async function geocodeListingCandidates({
   authorization,
   candidates,
+  signal,
   onResult,
 }: GeocodeListingCandidateOptions) {
   const sessionId = getGeocodeSessionId();
 
   for (const candidate of candidates) {
+    if (signal?.aborted) {
+      return;
+    }
+
     if (!candidate.geocodeQuery) {
       continue;
     }
@@ -430,6 +443,7 @@ async function geocodeListingCandidates({
     try {
       const response = await fetch("/api/geocode/listing", {
         method: "POST",
+        signal,
         headers: {
           "content-type": "application/json",
           "x-sf-apt-session": sessionId,
@@ -466,7 +480,11 @@ async function geocodeListingCandidates({
         });
       }
       onResult(candidate.id, { geocodeStatus: status ?? "failed" });
-    } catch {
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        return;
+      }
+
       onResult(candidate.id, { geocodeStatus: "failed" });
     }
   }

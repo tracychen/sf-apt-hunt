@@ -8,6 +8,7 @@ import {
   getOpenAiKeyFromRequest,
 } from "@/lib/server/openai";
 import { redactSecrets } from "@/lib/server/redaction";
+import { RequestBodyTooLargeError, readJsonRequestBody } from "@/lib/server/request-body";
 
 const listingSearchRequestSchema = z
   .object({
@@ -115,6 +116,7 @@ const listingSearchJsonSchema = {
 
 const GEOCODE_AUTHORIZATION_TTL_SECONDS = 10 * 60;
 const MAX_AUTHORIZED_GEOCODE_CANDIDATES = 10;
+const MAX_LISTING_SEARCH_REQUEST_BYTES = 256 * 1024;
 
 export async function POST(request: Request) {
   const apiKey = getOpenAiKeyFromRequest(request);
@@ -124,7 +126,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = listingSearchRequestSchema.parse(await request.json());
+    const body = listingSearchRequestSchema.parse(
+      await readJsonRequestBody(request, MAX_LISTING_SEARCH_REQUEST_BYTES),
+    );
     const openAiResponse = await createOpenAiResponse({
       apiKey,
       payload: {
@@ -189,6 +193,13 @@ export async function POST(request: Request) {
       geocodeAuthorization: mintGeocodeAuthorization(parsedResponse.candidates),
     });
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json(
+        { ok: false, error: "Listing search request is too large." },
+        { status: 413 },
+      );
+    }
+
     return Response.json(
       {
         ok: false,

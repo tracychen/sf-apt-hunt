@@ -52,7 +52,7 @@ const textSchema = z.string().max(MAX_TEXT_LENGTH);
 const requiredTextSchema = z.string().min(1).max(MAX_TEXT_LENGTH);
 const longTextSchema = z.string().max(MAX_LONG_TEXT_LENGTH);
 const requiredLongTextSchema = z.string().min(1).max(MAX_LONG_TEXT_LENGTH);
-const urlSchema = z.string().url().max(MAX_URL_LENGTH);
+const urlSchema = z.string().url({ protocol: /^https?$/ }).max(MAX_URL_LENGTH);
 const geocodeAuthNonceSchema = z.string().min(1).max(MAX_GEOCODE_AUTH_NONCE_LENGTH);
 const notesSchema = z.array(textSchema).max(MAX_NOTES);
 
