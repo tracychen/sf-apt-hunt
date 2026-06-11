@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3333.
 
 The base map and local editing tools run without service credentials. AI assistant and listing search requests require each user to enter an OpenAI API key in the app. Real listing geocoding also requires the Google, nonce, and Redis environment variables below.
 

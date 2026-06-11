@@ -166,13 +166,13 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: "http://127.0.0.1:3333",
     viewport: { width: 1440, height: 1000 },
     trace: "on-first-retry",
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
-    url: "http://127.0.0.1:3000",
+    command: "npm run dev -- --hostname 127.0.0.1",
+    url: "http://127.0.0.1:3333",
     reuseExistingServer: true,
     timeout: 120_000,
   },
@@ -3446,7 +3446,7 @@ npm install
 npm run dev
 \`\`\`
 
-Open http://localhost:3000.
+Open http://localhost:3333.
 
 ## Environment Variables
 
@@ -3512,7 +3512,7 @@ Expected: all commands exit 0.
 
 - [ ] **Step 3: Manual acceptance**
 
-Run `npm run dev`, open `http://localhost:3000`, and verify:
+Run `npm run dev`, open `http://localhost:3333`, and verify:
 
 - Map renders all seed zones.
 - The approximate-boundary note is visible.
