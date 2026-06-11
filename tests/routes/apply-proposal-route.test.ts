@@ -4,12 +4,16 @@ import { POST } from "@/app/api/map/apply-proposal/route";
 import { seedMapState } from "@/lib/map/seed-data";
 
 function createRequest(body: unknown) {
+  return createRawRequest(JSON.stringify(body));
+}
+
+function createRawRequest(body: string) {
   return new Request("http://localhost/api/map/apply-proposal", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify(body),
+    body,
   });
 }
 
@@ -68,6 +72,36 @@ describe("POST /api/map/apply-proposal", () => {
     expect(body).toEqual({
       ok: false,
       error: "Unknown zone ID.",
+    });
+  });
+
+  it("rejects oversized proposal requests before parsing", async () => {
+    const response = await POST(
+      createRawRequest(
+        JSON.stringify({
+          mapState: seedMapState,
+          proposal: {
+            summary: "Append a large note.",
+            operations: [
+              {
+                type: "addNote",
+                entityId: "lower-pac-heights",
+                note: "x".repeat(300_000),
+              },
+            ],
+            confidence: "low",
+            requiresUserReview: true,
+          },
+        }),
+      ),
+    );
+
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body).toEqual({
+      ok: false,
+      error: "Proposal request is too large.",
     });
   });
 });

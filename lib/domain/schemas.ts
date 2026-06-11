@@ -26,70 +26,101 @@ const scoreSchema = z.union([
 
 const prioritySchema = z.enum(["high", "medium", "low"]);
 
+const MAX_ID_LENGTH = 128;
+const MAX_NAME_LENGTH = 160;
+const MAX_TEXT_LENGTH = 2_000;
+const MAX_LONG_TEXT_LENGTH = 4_000;
+const MAX_URL_LENGTH = 2_048;
+const MAX_NOTES = 50;
+const MAX_TAGS = 5;
+const MAX_POLYGON_RINGS = 8;
+const MAX_POLYGON_RING_POINTS = 200;
+const MAX_LINE_POINTS = 200;
+const MAX_ALLOWED_GEOCODE_QUERIES = 100;
+const MAX_LISTING_CANDIDATES = 100;
+const MAX_CITATIONS = 50;
+const MAX_CAVEATS = 50;
+const MAX_PROPOSAL_OPERATIONS = 50;
+const MAX_MAP_ZONES = 100;
+const MAX_MAP_CORRIDORS = 100;
+const MAX_MAP_TARGETS = 200;
+
+const idSchema = z.string().min(1).max(MAX_ID_LENGTH);
+const nameSchema = z.string().min(1).max(MAX_NAME_LENGTH);
+const textSchema = z.string().max(MAX_TEXT_LENGTH);
+const requiredTextSchema = z.string().min(1).max(MAX_TEXT_LENGTH);
+const longTextSchema = z.string().max(MAX_LONG_TEXT_LENGTH);
+const requiredLongTextSchema = z.string().min(1).max(MAX_LONG_TEXT_LENGTH);
+const urlSchema = z.string().url().max(MAX_URL_LENGTH);
+const notesSchema = z.array(textSchema).max(MAX_NOTES);
+
 export const polygonGeometrySchema: z.ZodType<PolygonGeometry> = z.object({
   type: z.literal("Polygon"),
-  coordinates: z.array(z.array(coordinateSchema)).min(1),
+  coordinates: z
+    .array(z.array(coordinateSchema).min(4).max(MAX_POLYGON_RING_POINTS))
+    .min(1)
+    .max(MAX_POLYGON_RINGS),
 });
 
 export const lineStringGeometrySchema: z.ZodType<LineStringGeometry> = z.object({
   type: z.literal("LineString"),
-  coordinates: z.array(coordinateSchema).min(2),
+  coordinates: z.array(coordinateSchema).min(2).max(MAX_LINE_POINTS),
 });
 
 export const mapZoneSchema: z.ZodType<MapZone> = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
+  id: idSchema,
+  name: nameSchema,
   kind: z.enum(["neighborhood", "caution"]),
   geometry: polygonGeometrySchema,
   fitnessScore: scoreSchema,
   affordabilityScore: scoreSchema,
   carFreeScore: scoreSchema,
-  notes: z.array(z.string()),
+  notes: notesSchema,
 });
 
 export const targetCorridorSchema: z.ZodType<TargetCorridor> = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
+  id: idSchema,
+  name: nameSchema,
   geometry: lineStringGeometrySchema,
   priority: prioritySchema,
-  tags: z.array(z.enum(["fitness", "rent", "transit", "safety", "short-term"])),
-  notes: z.array(z.string()),
+  tags: z.array(z.enum(["fitness", "rent", "transit", "safety", "short-term"])).max(MAX_TAGS),
+  notes: notesSchema,
 });
 
 export const targetPointSchema: z.ZodType<TargetPoint> = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
+  id: idSchema,
+  name: nameSchema,
   coordinates: coordinateSchema,
   priority: prioritySchema,
-  notes: z.array(z.string()),
+  notes: notesSchema,
 });
 
 export const sourceCitationSchema: z.ZodType<SourceCitation> = z.object({
-  url: z.string().url(),
-  title: z.string().nullable(),
-  sourceDomain: z.string().min(1),
+  url: urlSchema,
+  title: textSchema.nullable(),
+  sourceDomain: idSchema,
 });
 
 export const geocodeAuthorizationSchema: z.ZodType<GeocodeAuthorization> = z.object({
-  nonce: z.string().min(1),
+  nonce: idSchema,
   expiresAt: z.string().datetime(),
   maxAttempts: z.number().int().positive(),
   allowedQueries: z.array(
     z.object({
-      candidateId: z.string().min(1),
-      geocodeQueryHash: z.string().min(1),
+      candidateId: idSchema,
+      geocodeQueryHash: idSchema,
     }),
-  ),
+  ).max(MAX_ALLOWED_GEOCODE_QUERIES),
 });
 
 export const listingCandidateSchema: z.ZodType<ListingCandidate> = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  url: z.string().url(),
-  sourceDomain: z.string().min(1),
-  neighborhoodGuess: z.string().min(1),
-  locationText: z.string().nullable(),
-  geocodeQuery: z.string().nullable(),
+  id: idSchema,
+  title: nameSchema,
+  url: urlSchema,
+  sourceDomain: idSchema,
+  neighborhoodGuess: nameSchema,
+  locationText: textSchema.nullable(),
+  geocodeQuery: textSchema.nullable(),
   locationConfidence: z.enum(["none", "low", "medium", "high"]),
   coordinates: coordinateSchema.nullable(),
   geocodeStatus: z.enum([
@@ -105,63 +136,63 @@ export const listingCandidateSchema: z.ZodType<ListingCandidate> = z.object({
   shortTermSignal: z.boolean(),
   furnishedSignal: z.boolean(),
   fitScore: scoreSchema,
-  whyItFits: z.string().min(1),
-  citations: z.array(sourceCitationSchema).min(1),
-  caveats: z.array(z.string()),
+  whyItFits: requiredTextSchema,
+  citations: z.array(sourceCitationSchema).min(1).max(MAX_CITATIONS),
+  caveats: z.array(textSchema).max(MAX_CAVEATS),
 });
 
 export const listingSearchResponseSchema: z.ZodType<ListingSearchResponse> = z.object({
-  candidates: z.array(listingCandidateSchema),
-  sourceSummary: z.string(),
-  citations: z.array(sourceCitationSchema),
-  caveats: z.array(z.string()),
+  candidates: z.array(listingCandidateSchema).max(MAX_LISTING_CANDIDATES),
+  sourceSummary: longTextSchema,
+  citations: z.array(sourceCitationSchema).max(MAX_CITATIONS),
+  caveats: z.array(textSchema).max(MAX_CAVEATS),
   geocodeAuthorization: geocodeAuthorizationSchema.nullable(),
 });
 
 export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
-  summary: z.string().min(1),
+  summary: requiredLongTextSchema,
   operations: z.array(
     z.discriminatedUnion("type", [
       z.object({ type: z.literal("addTarget"), target: targetPointSchema }),
       z.object({ type: z.literal("addCorridor"), corridor: targetCorridorSchema }),
       z.object({
         type: z.literal("updateCorridorPriority"),
-        corridorId: z.string().min(1),
+        corridorId: idSchema,
         priority: prioritySchema,
-        reason: z.string().min(1),
+        reason: requiredTextSchema,
       }),
       z.object({
         type: z.literal("updateTargetPriority"),
-        targetId: z.string().min(1),
+        targetId: idSchema,
         priority: prioritySchema,
-        reason: z.string().min(1),
+        reason: requiredTextSchema,
       }),
       z.object({
         type: z.literal("updateZoneScores"),
-        zoneId: z.string().min(1),
+        zoneId: idSchema,
         fitnessScore: scoreSchema.optional(),
         affordabilityScore: scoreSchema.optional(),
         carFreeScore: scoreSchema.optional(),
       }),
       z.object({
         type: z.literal("replaceZoneGeometry"),
-        zoneId: z.string().min(1),
+        zoneId: idSchema,
         geometry: polygonGeometrySchema,
-        reason: z.string().min(1),
+        reason: requiredTextSchema,
       }),
       z.object({
         type: z.literal("addNote"),
-        entityId: z.string().min(1),
-        note: z.string().min(1),
+        entityId: idSchema,
+        note: requiredTextSchema,
       }),
     ]),
-  ),
+  ).max(MAX_PROPOSAL_OPERATIONS),
   confidence: z.enum(["low", "medium", "high"]),
   requiresUserReview: z.literal(true),
 });
 
 export const mapStateSchema: z.ZodType<MapState> = z.object({
-  zones: z.array(mapZoneSchema),
-  corridors: z.array(targetCorridorSchema),
-  targets: z.array(targetPointSchema),
+  zones: z.array(mapZoneSchema).max(MAX_MAP_ZONES),
+  corridors: z.array(targetCorridorSchema).max(MAX_MAP_CORRIDORS),
+  targets: z.array(targetPointSchema).max(MAX_MAP_TARGETS),
 });

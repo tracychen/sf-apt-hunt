@@ -3,6 +3,7 @@ import {
   listingCandidateSchema,
   listingSearchResponseSchema,
   mapPatchProposalSchema,
+  mapStateSchema,
   mapZoneSchema,
   targetCorridorSchema,
   targetPointSchema,
@@ -173,5 +174,78 @@ describe("domain schemas", () => {
         requiresUserReview: true,
       }),
     ).not.toThrow();
+  });
+
+  it("caps map state collection sizes", () => {
+    const zone = {
+      id: "mission-dolores-valencia",
+      name: "Mission Dolores / Valencia",
+      kind: "neighborhood",
+      geometry: polygon,
+      fitnessScore: 5,
+      affordabilityScore: 3,
+      carFreeScore: 5,
+      notes: ["Strong car-free access."],
+    };
+
+    expect(() =>
+      mapStateSchema.parse({
+        zones: Array.from({ length: 101 }, (_, index) => ({
+          ...zone,
+          id: `zone-${index}`,
+        })),
+        corridors: [],
+        targets: [],
+      }),
+    ).toThrow();
+  });
+
+  it("caps proposal operation counts and free text", () => {
+    expect(() =>
+      mapPatchProposalSchema.parse({
+        summary: "Too many operations.",
+        operations: Array.from({ length: 51 }, () => ({
+          type: "updateZoneScores",
+          zoneId: "lower-pac-heights",
+          carFreeScore: 5,
+        })),
+        confidence: "low",
+        requiresUserReview: true,
+      }),
+    ).toThrow();
+
+    expect(() =>
+      mapPatchProposalSchema.parse({
+        summary: "x".repeat(4_001),
+        operations: [],
+        confidence: "low",
+        requiresUserReview: true,
+      }),
+    ).toThrow();
+  });
+
+  it("caps note counts and note length", () => {
+    expect(() =>
+      mapZoneSchema.parse({
+        id: "mission-dolores-valencia",
+        name: "Mission Dolores / Valencia",
+        kind: "neighborhood",
+        geometry: polygon,
+        fitnessScore: 5,
+        affordabilityScore: 3,
+        carFreeScore: 5,
+        notes: Array.from({ length: 51 }, (_, index) => `Note ${index}`),
+      }),
+    ).toThrow();
+
+    expect(() =>
+      targetPointSchema.parse({
+        id: "fillmore-california",
+        name: "Fillmore & California",
+        coordinates: [-122.433, 37.789],
+        priority: "high",
+        notes: ["x".repeat(2_001)],
+      }),
+    ).toThrow();
   });
 });
