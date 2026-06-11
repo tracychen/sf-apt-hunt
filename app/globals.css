@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+@import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
@@ -127,4 +129,10 @@
   html {
     @apply font-mono;
   }
+}
+
+.apartment-leaflet-map {
+  width: 100%;
+  min-height: 58vh;
+  height: 100%;
 }
