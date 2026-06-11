@@ -8,7 +8,10 @@ import type {
   MapPatchProposal,
   MapState,
 } from "@/lib/domain/types";
-import type { VisibleMapLayers } from "@/components/apartment-map/leaflet-map";
+import type {
+  SelectedMapEntity,
+  VisibleMapLayers,
+} from "@/components/apartment-map/leaflet-map";
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { AssistantPanel } from "@/components/apartment-map/assistant-panel";
 import { ListingResults } from "@/components/apartment-map/listing-results";
@@ -19,6 +22,7 @@ export function Sidebar({
   apiKey,
   remembered,
   mapState,
+  selectedEntity,
   visibleLayers,
   selectedZoneIds,
   listings,
@@ -39,6 +43,7 @@ export function Sidebar({
   apiKey: string | null;
   remembered: boolean;
   mapState: MapState;
+  selectedEntity: SelectedMapEntity;
   visibleLayers: VisibleMapLayers;
   selectedZoneIds: string[];
   listings: ListingCandidate[];
@@ -83,6 +88,9 @@ export function Sidebar({
           {mapState.zones.length} zones, {selectedZoneIds.length} selected,{" "}
           {listings.length} listings staged.
         </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Active shape: {describeSelectedEntity(selectedEntity, mapState)}
+        </p>
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-sidebar-border p-3">
@@ -90,7 +98,7 @@ export function Sidebar({
           Undo
         </Button>
         <Button disabled={!canResetSelectedShapes} variant="outline" onClick={onResetSelectedShapes}>
-          Reset selected zones
+          Reset selected shape
         </Button>
         <Button variant="outline" onClick={onReset}>
           Reset local map
@@ -147,4 +155,23 @@ export function Sidebar({
       </div>
     </aside>
   );
+}
+
+function describeSelectedEntity(selectedEntity: SelectedMapEntity, mapState: MapState) {
+  if (!selectedEntity) {
+    return "None";
+  }
+
+  if (selectedEntity.kind === "zone") {
+    return mapState.zones.find((zone) => zone.id === selectedEntity.id)?.name ?? selectedEntity.id;
+  }
+
+  if (selectedEntity.kind === "corridor") {
+    return (
+      mapState.corridors.find((corridor) => corridor.id === selectedEntity.id)?.name ??
+      selectedEntity.id
+    );
+  }
+
+  return mapState.targets.find((target) => target.id === selectedEntity.id)?.name ?? selectedEntity.id;
 }

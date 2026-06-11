@@ -28,11 +28,19 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 type LeafletMapProps = {
   mapState: MapState;
   listings: ListingCandidate[];
+  selectedEntity: SelectedMapEntity;
   selectedZoneIds: string[];
   visibleLayers: VisibleMapLayers;
   onMapStateChange: (state: MapState) => void;
+  onSelectedEntityChange: (entity: SelectedMapEntity) => void;
   onSelectedZoneIdsChange: (ids: string[]) => void;
 };
+
+export type SelectedMapEntity =
+  | { kind: "zone"; id: string }
+  | { kind: "corridor"; id: string }
+  | { kind: "target"; id: string }
+  | null;
 
 export type VisibleMapLayers = {
   zones: boolean;
@@ -288,6 +296,7 @@ function CorridorPolyline({
   corridorId,
   mapState,
   onMapStateChange,
+  onSelect,
   pathOptions,
   positions,
 }: {
@@ -295,6 +304,7 @@ function CorridorPolyline({
   corridorId: string;
   mapState: MapState;
   onMapStateChange: (state: MapState) => void;
+  onSelect: () => void;
   pathOptions: PathOptions;
   positions: LatLngExpression[];
 }) {
@@ -305,7 +315,12 @@ function CorridorPolyline({
   );
 
   return (
-    <Polyline ref={setPolylineLayer} positions={positions} pathOptions={pathOptions}>
+    <Polyline
+      ref={setPolylineLayer}
+      positions={positions}
+      pathOptions={pathOptions}
+      eventHandlers={{ click: onSelect }}
+    >
       {children}
     </Polyline>
   );
@@ -315,14 +330,18 @@ function TargetMarker({
   children,
   mapState,
   onMapStateChange,
+  onSelect,
   position,
+  selected,
   targetId,
   title,
 }: {
   children: ReactNode;
   mapState: MapState;
   onMapStateChange: (state: MapState) => void;
+  onSelect: () => void;
   position: LatLngExpression;
+  selected: boolean;
   targetId: string;
   title: string;
 }) {
@@ -333,7 +352,14 @@ function TargetMarker({
   );
 
   return (
-    <Marker ref={setMarkerLayer} position={position} title={title} draggable>
+    <Marker
+      ref={setMarkerLayer}
+      position={position}
+      title={title}
+      draggable
+      zIndexOffset={selected ? 900 : 0}
+      eventHandlers={{ click: onSelect }}
+    >
       {children}
     </Marker>
   );
@@ -368,9 +394,11 @@ function ListingMarker({
 export function LeafletMap({
   mapState,
   listings,
+  selectedEntity,
   selectedZoneIds,
   visibleLayers,
   onMapStateChange,
+  onSelectedEntityChange,
   onSelectedZoneIdsChange,
 }: LeafletMapProps) {
   const [geomanReady, setGeomanReady] = useState(false);
@@ -398,10 +426,15 @@ export function LeafletMap({
   }, []);
 
   function toggleZone(zoneId: string) {
+    const nextSelectedZoneIds = selectedZoneSet.has(zoneId)
+      ? selectedZoneIds.filter((id) => id !== zoneId)
+      : [...selectedZoneIds, zoneId];
+
     onSelectedZoneIdsChange(
-      selectedZoneSet.has(zoneId)
-        ? selectedZoneIds.filter((id) => id !== zoneId)
-        : [...selectedZoneIds, zoneId],
+      nextSelectedZoneIds,
+    );
+    onSelectedEntityChange(
+      selectedZoneSet.has(zoneId) ? null : { kind: "zone", id: zoneId },
     );
   }
 
@@ -428,13 +461,14 @@ export function LeafletMap({
 
         {visibleLayers.zones ? mapState.zones.map((zone) => {
           const selected = selectedZoneSet.has(zone.id);
+          const active = selectedEntity?.kind === "zone" && selectedEntity.id === zone.id;
           const positions = zone.geometry.coordinates.map((ring) => ring.map(toLatLng));
 
           return (
             <ZonePolygon
               key={zone.id}
               positions={positions as LatLngExpression[][]}
-              selected={selected}
+              selected={selected || active}
               zoneId={zone.id}
               zoneKind={zone.kind}
               zoneName={zone.name}
@@ -455,32 +489,44 @@ export function LeafletMap({
           );
         }) : null}
 
-        {visibleLayers.corridors ? mapState.corridors.map((corridor) => (
-          <CorridorPolyline
-            key={corridor.id}
-            corridorId={corridor.id}
-            mapState={mapState}
-            onMapStateChange={onMapStateChange}
-            positions={corridor.geometry.coordinates.map(toLatLng)}
-            pathOptions={corridorPathOptions(corridor.priority)}
-          >
-            <Tooltip sticky>{corridor.name}</Tooltip>
-            <Popup>
-              <div className="space-y-1 text-sm">
-                <p className="font-semibold">{corridor.name}</p>
-                <p>{corridor.priority} priority corridor</p>
-                <p>{corridor.notes[0]}</p>
-              </div>
-            </Popup>
-          </CorridorPolyline>
-        )) : null}
+        {visibleLayers.corridors ? mapState.corridors.map((corridor) => {
+          const pathOptions = corridorPathOptions(corridor.priority);
+          const selected =
+            selectedEntity?.kind === "corridor" && selectedEntity.id === corridor.id;
+
+          return (
+            <CorridorPolyline
+              key={corridor.id}
+              corridorId={corridor.id}
+              mapState={mapState}
+              onMapStateChange={onMapStateChange}
+              positions={corridor.geometry.coordinates.map(toLatLng)}
+              pathOptions={{
+                ...pathOptions,
+                weight: selected ? (pathOptions.weight ?? 4) + 2 : pathOptions.weight,
+              }}
+              onSelect={() => onSelectedEntityChange({ kind: "corridor", id: corridor.id })}
+            >
+              <Tooltip sticky>{corridor.name}</Tooltip>
+              <Popup>
+                <div className="space-y-1 text-sm">
+                  <p className="font-semibold">{corridor.name}</p>
+                  <p>{corridor.priority} priority corridor</p>
+                  <p>{corridor.notes[0]}</p>
+                </div>
+              </Popup>
+            </CorridorPolyline>
+          );
+        }) : null}
 
         {visibleLayers.targets ? mapState.targets.map((target) => (
           <TargetMarker
             key={target.id}
             mapState={mapState}
             onMapStateChange={onMapStateChange}
+            onSelect={() => onSelectedEntityChange({ kind: "target", id: target.id })}
             position={toLatLng(target.coordinates)}
+            selected={selectedEntity?.kind === "target" && selectedEntity.id === target.id}
             targetId={target.id}
             title={target.name}
           >

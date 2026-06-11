@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { MapPatchProposal, MapState } from "@/lib/domain/types";
+import type { Coordinate, MapPatchProposal, MapState } from "@/lib/domain/types";
 import { Button } from "@/components/ui/button";
 
 type ProposalOperation = MapPatchProposal["operations"][number];
@@ -69,6 +69,79 @@ function operationPreview(operation: ProposalOperation, mapState: MapState) {
     case "addNote":
       return operation.note;
   }
+}
+
+function GeometryPreview({
+  current,
+  proposed,
+}: {
+  current: Coordinate[] | null;
+  proposed: Coordinate[];
+}) {
+  return (
+    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      <CoordinatePreviewList label="Current geometry" coordinates={current} />
+      <CoordinatePreviewList label="Proposed geometry" coordinates={proposed} />
+    </div>
+  );
+}
+
+function CoordinatePreviewList({
+  coordinates,
+  label,
+}: {
+  coordinates: Coordinate[] | null;
+  label: string;
+}) {
+  return (
+    <div className="border border-border bg-background p-2">
+      <p className="text-[10px] font-medium uppercase text-muted-foreground">{label}</p>
+      {coordinates ? (
+        <ol className="mt-1 space-y-0.5 font-mono text-[10px] leading-4 text-muted-foreground">
+          {coordinates.slice(0, 8).map((coordinate, index) => (
+            <li key={`${label}-${index}`}>
+              {index + 1}. {formatCoordinate(coordinate)}
+            </li>
+          ))}
+          {coordinates.length > 8 ? <li>... {coordinates.length - 8} more points</li> : null}
+        </ol>
+      ) : (
+        <p className="mt-1 text-[10px] text-muted-foreground">No current geometry.</p>
+      )}
+    </div>
+  );
+}
+
+function GeometryPreviewForOperation({
+  mapState,
+  operation,
+}: {
+  mapState: MapState;
+  operation: ProposalOperation;
+}) {
+  if (operation.type === "replaceZoneGeometry") {
+    const zone = mapState.zones.find((item) => item.id === operation.zoneId);
+    return (
+      <GeometryPreview
+        current={zone?.geometry.coordinates[0] ?? null}
+        proposed={operation.geometry.coordinates[0] ?? []}
+      />
+    );
+  }
+
+  if (operation.type === "addCorridor") {
+    return <GeometryPreview current={null} proposed={operation.corridor.geometry.coordinates} />;
+  }
+
+  if (operation.type === "addTarget") {
+    return <GeometryPreview current={null} proposed={[operation.target.coordinates]} />;
+  }
+
+  return null;
+}
+
+function formatCoordinate([lng, lat]: Coordinate) {
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
 export function ProposalReviewDialog({
@@ -160,6 +233,7 @@ export function ProposalReviewDialog({
           <li key={`${operation.type}-${index}`}>
             <span className="font-medium text-foreground">{describeOperation(operation)}</span>
             <span className="mt-0.5 block">{operationPreview(operation, mapState)}</span>
+            <GeometryPreviewForOperation mapState={mapState} operation={operation} />
           </li>
         ))}
       </ul>

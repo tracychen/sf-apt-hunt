@@ -21,15 +21,20 @@ import {
   saveMapState,
   type GeocodeCacheEntry,
 } from "@/lib/storage/map-storage";
-import type { VisibleMapLayers } from "@/components/apartment-map/leaflet-map";
+import type {
+  SelectedMapEntity,
+  VisibleMapLayers,
+} from "@/components/apartment-map/leaflet-map";
 import { Sidebar } from "@/components/apartment-map/sidebar";
 
 type MapPanelProps = {
   mapState: MapState;
   listings: ListingCandidate[];
+  selectedEntity: SelectedMapEntity;
   selectedZoneIds: string[];
   visibleLayers: VisibleMapLayers;
   onMapStateChange: (state: MapState) => void;
+  onSelectedEntityChange: (entity: SelectedMapEntity) => void;
   onSelectedZoneIdsChange: (ids: string[]) => void;
 };
 
@@ -105,6 +110,7 @@ export function ApartmentMapApp() {
   });
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [remembered, setRemembered] = useState(false);
+  const [selectedEntity, setSelectedEntity] = useState<SelectedMapEntity>(null);
   const [selectedZoneIds, setSelectedZoneIds] = useState<string[]>([]);
   const [visibleLayers, setVisibleLayers] = useState<VisibleMapLayers>(defaultVisibleLayers);
   const [proposal, setProposal] = useState<MapPatchProposal | null>(null);
@@ -147,26 +153,24 @@ export function ApartmentMapApp() {
 
   function resetLocalMap() {
     dispatchMapHistory({ type: "reset" });
+    setSelectedEntity(null);
     setSelectedZoneIds([]);
     setProposal(null);
     clearMapState();
   }
 
-  function resetSelectedZones() {
-    if (selectedZoneIds.length === 0) {
+  function resetSelectedShape() {
+    if (!selectedEntity) {
       return;
     }
 
-    const selectedZoneSet = new Set(selectedZoneIds);
-    const seedZonesById = new Map(seedMapState.zones.map((zone) => [zone.id, zone]));
-    const nextState = {
-      ...mapState,
-      zones: mapState.zones.map((zone) =>
-        selectedZoneSet.has(zone.id) ? seedZonesById.get(zone.id) ?? zone : zone,
-      ),
-    };
+    const nextState = resetMapEntity(mapState, selectedEntity);
 
     updateMapState(nextState);
+    if (selectedEntity.kind === "zone" && !seedMapState.zones.some((zone) => zone.id === selectedEntity.id)) {
+      setSelectedZoneIds((ids) => ids.filter((id) => id !== selectedEntity.id));
+      setSelectedEntity(null);
+    }
   }
 
   function updateApiKey(nextApiKey: string | null, nextRemembered: boolean) {
@@ -231,9 +235,11 @@ export function ApartmentMapApp() {
         <LeafletMap
           mapState={mapState}
           listings={listings}
+          selectedEntity={selectedEntity}
           selectedZoneIds={selectedZoneIds}
           visibleLayers={visibleLayers}
           onMapStateChange={updateMapState}
+          onSelectedEntityChange={setSelectedEntity}
           onSelectedZoneIdsChange={setSelectedZoneIds}
         />
       </section>
@@ -241,6 +247,7 @@ export function ApartmentMapApp() {
         apiKey={apiKey}
         remembered={remembered}
         mapState={mapState}
+        selectedEntity={selectedEntity}
         visibleLayers={visibleLayers}
         selectedZoneIds={selectedZoneIds}
         listings={listings}
@@ -254,12 +261,50 @@ export function ApartmentMapApp() {
         onRejectProposal={() => setProposal(null)}
         onUndo={undoLastEdit}
         onReset={resetLocalMap}
-        onResetSelectedShapes={resetSelectedZones}
+        onResetSelectedShapes={resetSelectedShape}
         canUndo={canUndo}
-        canResetSelectedShapes={selectedZoneIds.length > 0}
+        canResetSelectedShapes={selectedEntity !== null}
       />
     </main>
   );
+}
+
+function resetMapEntity(mapState: MapState, selectedEntity: NonNullable<SelectedMapEntity>) {
+  switch (selectedEntity.kind) {
+    case "zone": {
+      const seedZone = seedMapState.zones.find((zone) => zone.id === selectedEntity.id);
+      return {
+        ...mapState,
+        zones: seedZone
+          ? mapState.zones.map((zone) => (zone.id === selectedEntity.id ? seedZone : zone))
+          : mapState.zones.filter((zone) => zone.id !== selectedEntity.id),
+      };
+    }
+    case "corridor": {
+      const seedCorridor = seedMapState.corridors.find(
+        (corridor) => corridor.id === selectedEntity.id,
+      );
+      return {
+        ...mapState,
+        corridors: seedCorridor
+          ? mapState.corridors.map((corridor) =>
+              corridor.id === selectedEntity.id ? seedCorridor : corridor,
+            )
+          : mapState.corridors.filter((corridor) => corridor.id !== selectedEntity.id),
+      };
+    }
+    case "target": {
+      const seedTarget = seedMapState.targets.find((target) => target.id === selectedEntity.id);
+      return {
+        ...mapState,
+        targets: seedTarget
+          ? mapState.targets.map((target) =>
+              target.id === selectedEntity.id ? seedTarget : target,
+            )
+          : mapState.targets.filter((target) => target.id !== selectedEntity.id),
+      };
+    }
+  }
 }
 
 type GeocodeListingCandidateOptions = {
