@@ -46,6 +46,32 @@ class FakeStorage implements Storage {
   }
 }
 
+class ThrowingStorage implements Storage {
+  get length(): number {
+    throw new Error("storage unavailable");
+  }
+
+  clear(): void {
+    throw new Error("storage unavailable");
+  }
+
+  getItem(): string | null {
+    throw new Error("storage unavailable");
+  }
+
+  key(): string | null {
+    throw new Error("storage unavailable");
+  }
+
+  removeItem(): void {
+    throw new Error("storage unavailable");
+  }
+
+  setItem(): void {
+    throw new Error("storage unavailable");
+  }
+}
+
 function createBrowserStorage() {
   return {
     localStorage: new FakeStorage(),
@@ -146,6 +172,31 @@ describe("api key storage", () => {
       remembered: false,
     });
   });
+
+  it("does not throw without browser storage", () => {
+    expect(() => saveOpenAiKey("sk-session", false)).not.toThrow();
+    expect(() => saveOpenAiKey("sk-remembered", true)).not.toThrow();
+    expect(loadStoredOpenAiKey()).toEqual({
+      key: null,
+      remembered: false,
+    });
+    expect(() => clearStoredOpenAiKey()).not.toThrow();
+  });
+
+  it("fails closed when storage methods throw", () => {
+    const storage = {
+      localStorage: new ThrowingStorage(),
+      sessionStorage: new ThrowingStorage(),
+    };
+
+    expect(() => saveOpenAiKey("sk-session", false, storage)).not.toThrow();
+    expect(() => saveOpenAiKey("sk-remembered", true, storage)).not.toThrow();
+    expect(loadStoredOpenAiKey(storage)).toEqual({
+      key: null,
+      remembered: false,
+    });
+    expect(() => clearStoredOpenAiKey(storage)).not.toThrow();
+  });
 });
 
 describe("map storage", () => {
@@ -165,6 +216,26 @@ describe("map storage", () => {
     clearMapState(localStorage);
 
     expect(localStorage.getItem(mapStateStorageKey)).toBeNull();
+    expect(loadMapState(localStorage)).toBeNull();
+  });
+
+  it("returns null for malformed map JSON", () => {
+    const localStorage = new FakeStorage();
+    localStorage.setItem(mapStateStorageKey, "{");
+
+    expect(loadMapState(localStorage)).toBeNull();
+  });
+
+  it("returns null for schema-invalid map state", () => {
+    const localStorage = new FakeStorage();
+    localStorage.setItem(
+      mapStateStorageKey,
+      JSON.stringify({
+        zones: [],
+        corridors: [],
+      }),
+    );
+
     expect(loadMapState(localStorage)).toBeNull();
   });
 
@@ -194,5 +265,65 @@ describe("map storage", () => {
         },
       }),
     );
+  });
+
+  it("drops invalid geocode cache entries when loading", () => {
+    const localStorage = new FakeStorage();
+    localStorage.setItem(
+      geocodeCacheStorageKey,
+      `{
+        "valid query": {
+          "coordinates": [-122.433, 37.789],
+          "markerPrecision": "approximate"
+        },
+        "infinite query": {
+          "coordinates": [1e999, 37.789],
+          "markerPrecision": "exact"
+        },
+        "wrong marker precision": {
+          "coordinates": [-122.433, 37.789],
+          "markerPrecision": "none"
+        }
+      }`,
+    );
+
+    expect(loadGeocodeCache(localStorage)).toEqual({
+      "valid query": {
+        coordinates: [-122.433, 37.789],
+        markerPrecision: "approximate",
+      },
+    });
+  });
+
+  it("does not throw without browser storage", () => {
+    expect(() => saveMapState(validMapState)).not.toThrow();
+    expect(loadMapState()).toBeNull();
+    expect(() => clearMapState()).not.toThrow();
+    expect(loadGeocodeCache()).toEqual({});
+    expect(() =>
+      saveGeocodeCacheEntry("Fillmore and California, San Francisco, CA", {
+        coordinates: [-122.433, 37.789],
+        markerPrecision: "exact",
+      }),
+    ).not.toThrow();
+  });
+
+  it("fails closed when storage methods throw", () => {
+    const localStorage = new ThrowingStorage();
+
+    expect(() => saveMapState(validMapState, localStorage)).not.toThrow();
+    expect(loadMapState(localStorage)).toBeNull();
+    expect(() => clearMapState(localStorage)).not.toThrow();
+    expect(loadGeocodeCache(localStorage)).toEqual({});
+    expect(() =>
+      saveGeocodeCacheEntry(
+        "Fillmore and California, San Francisco, CA",
+        {
+          coordinates: [-122.433, 37.789],
+          markerPrecision: "exact",
+        },
+        localStorage,
+      ),
+    ).not.toThrow();
   });
 });

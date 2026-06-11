@@ -17,14 +17,60 @@ function getBrowserStorage(): ApiKeyStorage | null {
     return null;
   }
 
-  return {
-    localStorage: window.localStorage,
-    sessionStorage: window.sessionStorage,
-  };
+  try {
+    return {
+      localStorage: window.localStorage,
+      sessionStorage: window.sessionStorage,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function resolveStorage(storage?: ApiKeyStorage): ApiKeyStorage | null {
-  return storage ?? getBrowserStorage();
+  try {
+    return storage ?? getBrowserStorage();
+  } catch {
+    return null;
+  }
+}
+
+function safeGetItem(storage: StorageLike | null | undefined, key: string) {
+  if (!storage) {
+    return { ok: true, value: null };
+  }
+
+  try {
+    return { ok: true, value: storage.getItem(key) };
+  } catch {
+    return { ok: false, value: null };
+  }
+}
+
+function safeRemoveItem(storage: StorageLike | null | undefined, key: string) {
+  if (!storage) {
+    return true;
+  }
+
+  try {
+    storage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeSetItem(storage: StorageLike | null | undefined, key: string, value: string) {
+  if (!storage) {
+    return false;
+  }
+
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function saveOpenAiKey(key: string, remember: boolean, storage?: ApiKeyStorage) {
@@ -34,15 +80,20 @@ export function saveOpenAiKey(key: string, remember: boolean, storage?: ApiKeySt
     return;
   }
 
-  resolvedStorage.localStorage?.removeItem(openAiKeyStorageKey);
-  resolvedStorage.sessionStorage?.removeItem(openAiKeyStorageKey);
+  const removedStoredKey =
+    safeRemoveItem(resolvedStorage.localStorage, openAiKeyStorageKey) &&
+    safeRemoveItem(resolvedStorage.sessionStorage, openAiKeyStorageKey);
 
-  if (remember) {
-    resolvedStorage.localStorage?.setItem(openAiKeyStorageKey, key);
+  if (!removedStoredKey) {
     return;
   }
 
-  resolvedStorage.sessionStorage?.setItem(openAiKeyStorageKey, key);
+  if (remember) {
+    safeSetItem(resolvedStorage.localStorage, openAiKeyStorageKey, key);
+    return;
+  }
+
+  safeSetItem(resolvedStorage.sessionStorage, openAiKeyStorageKey, key);
 }
 
 export function loadStoredOpenAiKey(storage?: ApiKeyStorage): StoredOpenAiKey {
@@ -52,13 +103,21 @@ export function loadStoredOpenAiKey(storage?: ApiKeyStorage): StoredOpenAiKey {
     return { key: null, remembered: false };
   }
 
-  const rememberedKey = resolvedStorage.localStorage?.getItem(openAiKeyStorageKey) ?? null;
-  if (rememberedKey !== null) {
-    return { key: rememberedKey, remembered: true };
+  const rememberedKey = safeGetItem(resolvedStorage.localStorage, openAiKeyStorageKey);
+  if (!rememberedKey.ok) {
+    return { key: null, remembered: false };
   }
 
-  const sessionKey = resolvedStorage.sessionStorage?.getItem(openAiKeyStorageKey) ?? null;
-  return { key: sessionKey, remembered: false };
+  if (rememberedKey.value !== null) {
+    return { key: rememberedKey.value, remembered: true };
+  }
+
+  const sessionKey = safeGetItem(resolvedStorage.sessionStorage, openAiKeyStorageKey);
+  if (!sessionKey.ok) {
+    return { key: null, remembered: false };
+  }
+
+  return { key: sessionKey.value, remembered: false };
 }
 
 export function clearStoredOpenAiKey(storage?: ApiKeyStorage) {
@@ -68,6 +127,6 @@ export function clearStoredOpenAiKey(storage?: ApiKeyStorage) {
     return;
   }
 
-  resolvedStorage.localStorage?.removeItem(openAiKeyStorageKey);
-  resolvedStorage.sessionStorage?.removeItem(openAiKeyStorageKey);
+  safeRemoveItem(resolvedStorage.localStorage, openAiKeyStorageKey);
+  safeRemoveItem(resolvedStorage.sessionStorage, openAiKeyStorageKey);
 }

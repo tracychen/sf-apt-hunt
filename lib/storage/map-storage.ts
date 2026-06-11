@@ -18,11 +18,19 @@ function getBrowserLocalStorage(): StorageLike | null {
     return null;
   }
 
-  return window.localStorage;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function resolveLocalStorage(storage?: StorageLike): StorageLike | null {
-  return storage ?? getBrowserLocalStorage();
+  try {
+    return storage ?? getBrowserLocalStorage();
+  } catch {
+    return null;
+  }
 }
 
 function normalizeGeocodeQuery(query: string) {
@@ -37,6 +45,32 @@ function parseJson(raw: string) {
   }
 }
 
+function safeGetItem(storage: StorageLike, key: string) {
+  try {
+    return { ok: true, value: storage.getItem(key) };
+  } catch {
+    return { ok: false, value: null };
+  }
+}
+
+function safeRemoveItem(storage: StorageLike, key: string) {
+  try {
+    storage.removeItem(key);
+  } catch {
+    return;
+  }
+}
+
+function safeSetItem(storage: StorageLike, key: string, value: string) {
+  try {
+    storage.setItem(key, value);
+  } catch {
+    return false;
+  }
+
+  return true;
+}
+
 function isGeocodeCacheEntry(value: unknown): value is GeocodeCacheEntry {
   if (!value || typeof value !== "object") {
     return false;
@@ -46,18 +80,36 @@ function isGeocodeCacheEntry(value: unknown): value is GeocodeCacheEntry {
   return (
     Array.isArray(entry.coordinates) &&
     entry.coordinates.length === 2 &&
-    entry.coordinates.every((coordinate) => typeof coordinate === "number") &&
+    entry.coordinates.every(
+      (coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate),
+    ) &&
     (entry.markerPrecision === "exact" || entry.markerPrecision === "approximate")
   );
 }
 
-function isGeocodeCache(value: unknown): value is GeocodeCache {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.values(value).every(isGeocodeCacheEntry)
+function parseGeocodeCache(value: unknown): GeocodeCache {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, GeocodeCacheEntry] =>
+      isGeocodeCacheEntry(entry[1]),
+    ),
   );
+}
+
+function readGeocodeCache(storage: StorageLike) {
+  const rawCache = safeGetItem(storage, geocodeCacheStorageKey);
+  if (!rawCache.ok) {
+    return { ok: false, cache: {} };
+  }
+
+  if (rawCache.value === null) {
+    return { ok: true, cache: {} };
+  }
+
+  return { ok: true, cache: parseGeocodeCache(parseJson(rawCache.value)) };
 }
 
 export function saveMapState(state: MapState, storage?: StorageLike) {
@@ -67,7 +119,7 @@ export function saveMapState(state: MapState, storage?: StorageLike) {
     return;
   }
 
-  localStorage.setItem(mapStateStorageKey, JSON.stringify(state));
+  safeSetItem(localStorage, mapStateStorageKey, JSON.stringify(state));
 }
 
 export function loadMapState(storage?: StorageLike): MapState | null {
@@ -77,12 +129,16 @@ export function loadMapState(storage?: StorageLike): MapState | null {
     return null;
   }
 
-  const rawState = localStorage.getItem(mapStateStorageKey);
-  if (rawState === null) {
+  const rawState = safeGetItem(localStorage, mapStateStorageKey);
+  if (!rawState.ok) {
     return null;
   }
 
-  const parsedState = parseJson(rawState);
+  if (rawState.value === null) {
+    return null;
+  }
+
+  const parsedState = parseJson(rawState.value);
   const result = mapStateSchema.safeParse(parsedState);
   return result.success ? result.data : null;
 }
@@ -94,7 +150,7 @@ export function clearMapState(storage?: StorageLike) {
     return;
   }
 
-  localStorage.removeItem(mapStateStorageKey);
+  safeRemoveItem(localStorage, mapStateStorageKey);
 }
 
 export function loadGeocodeCache(storage?: StorageLike): GeocodeCache {
@@ -104,13 +160,7 @@ export function loadGeocodeCache(storage?: StorageLike): GeocodeCache {
     return {};
   }
 
-  const rawCache = localStorage.getItem(geocodeCacheStorageKey);
-  if (rawCache === null) {
-    return {};
-  }
-
-  const parsedCache = parseJson(rawCache);
-  return isGeocodeCache(parsedCache) ? parsedCache : {};
+  return readGeocodeCache(localStorage).cache;
 }
 
 export function saveGeocodeCacheEntry(
@@ -124,7 +174,16 @@ export function saveGeocodeCacheEntry(
     return;
   }
 
-  const cache = loadGeocodeCache(localStorage);
+  if (!isGeocodeCacheEntry(entry)) {
+    return;
+  }
+
+  const cacheResult = readGeocodeCache(localStorage);
+  if (!cacheResult.ok) {
+    return;
+  }
+
+  const cache = cacheResult.cache;
   cache[normalizeGeocodeQuery(query)] = entry;
-  localStorage.setItem(geocodeCacheStorageKey, JSON.stringify(cache));
+  safeSetItem(localStorage, geocodeCacheStorageKey, JSON.stringify(cache));
 }
