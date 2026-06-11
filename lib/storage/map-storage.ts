@@ -9,6 +9,9 @@ type StorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 export type GeocodeCacheEntry = {
   coordinates: [number, number];
   markerPrecision: "exact" | "approximate";
+} | {
+  status: "failed" | "outside_sf";
+  error?: string;
 };
 
 export type GeocodeCache = Record<string, GeocodeCacheEntry>;
@@ -33,7 +36,7 @@ function resolveLocalStorage(storage?: StorageLike): StorageLike | null {
   }
 }
 
-function normalizeGeocodeQuery(query: string) {
+export function canonicalizeGeocodeCacheQuery(query: string) {
   return query.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
@@ -76,14 +79,27 @@ function isGeocodeCacheEntry(value: unknown): value is GeocodeCacheEntry {
     return false;
   }
 
-  const entry = value as Partial<GeocodeCacheEntry>;
-  return (
-    Array.isArray(entry.coordinates) &&
-    entry.coordinates.length === 2 &&
-    entry.coordinates.every(
+  const entry = value as Record<string, unknown>;
+  const coordinates = entry.coordinates;
+  const markerPrecision = entry.markerPrecision;
+  const status = entry.status;
+  const error = entry.error;
+
+  const isSuccessfulEntry =
+    Array.isArray(coordinates) &&
+    coordinates.length === 2 &&
+    coordinates.every(
       (coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate),
     ) &&
-    (entry.markerPrecision === "exact" || entry.markerPrecision === "approximate")
+    (markerPrecision === "exact" || markerPrecision === "approximate");
+
+  if (isSuccessfulEntry) {
+    return true;
+  }
+
+  return (
+    (status === "failed" || status === "outside_sf") &&
+    (typeof error === "undefined" || typeof error === "string")
   );
 }
 
@@ -184,6 +200,6 @@ export function saveGeocodeCacheEntry(
   }
 
   const cache = cacheResult.cache;
-  cache[normalizeGeocodeQuery(query)] = entry;
+  cache[canonicalizeGeocodeCacheQuery(query)] = entry;
   safeSetItem(localStorage, geocodeCacheStorageKey, JSON.stringify(cache));
 }

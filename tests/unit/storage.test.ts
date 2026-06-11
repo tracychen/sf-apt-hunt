@@ -267,6 +267,34 @@ describe("map storage", () => {
     );
   });
 
+  it("stores failed geocode cache entries by normalized query", () => {
+    const localStorage = new FakeStorage();
+
+    saveGeocodeCacheEntry(
+      "  No   Such Listing, San Francisco, CA  ",
+      {
+        status: "failed",
+        error: "No geocode result found.",
+      },
+      localStorage,
+    );
+
+    expect(loadGeocodeCache(localStorage)).toEqual({
+      "no such listing, san francisco, ca": {
+        status: "failed",
+        error: "No geocode result found.",
+      },
+    });
+    expect(localStorage.getItem(geocodeCacheStorageKey)).toBe(
+      JSON.stringify({
+        "no such listing, san francisco, ca": {
+          status: "failed",
+          error: "No geocode result found.",
+        },
+      }),
+    );
+  });
+
   it("drops invalid geocode cache entries when loading", () => {
     const localStorage = new FakeStorage();
     localStorage.setItem(
@@ -283,6 +311,10 @@ describe("map storage", () => {
         "wrong marker precision": {
           "coordinates": [-122.433, 37.789],
           "markerPrecision": "none"
+        },
+        "wrong failed status": {
+          "status": "not_attempted",
+          "error": "Invalid cache entry."
         }
       }`,
     );

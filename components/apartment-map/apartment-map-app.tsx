@@ -1,11 +1,26 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useReducer, useState } from "react";
-import type { ListingCandidate, MapPatchProposal, MapState } from "@/lib/domain/types";
-import { applyProposal } from "@/lib/map/proposals";
+import { useEffect, useReducer, useRef, useState } from "react";
+import type {
+  Coordinate,
+  GeocodeAuthorization,
+  ListingCandidate,
+  ListingSearchResponse,
+  MapPatchProposal,
+  MapState,
+} from "@/lib/domain/types";
 import { seedMapState } from "@/lib/map/seed-data";
-import { clearMapState, loadMapState, saveMapState } from "@/lib/storage/map-storage";
+import { loadStoredOpenAiKey } from "@/lib/storage/api-key-storage";
+import {
+  canonicalizeGeocodeCacheQuery,
+  clearMapState,
+  loadGeocodeCache,
+  loadMapState,
+  saveGeocodeCacheEntry,
+  saveMapState,
+  type GeocodeCacheEntry,
+} from "@/lib/storage/map-storage";
 import { Sidebar } from "@/components/apartment-map/sidebar";
 
 type MapPanelProps = {
@@ -77,9 +92,12 @@ export function ApartmentMapApp() {
     current: seedMapState,
     history: [],
   });
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [remembered, setRemembered] = useState(false);
   const [selectedZoneIds, setSelectedZoneIds] = useState<string[]>([]);
   const [proposal, setProposal] = useState<MapPatchProposal | null>(null);
   const [listings, setListings] = useState<ListingCandidate[]>([]);
+  const geocodeRunIdRef = useRef(0);
   const mapState = mapHistory.current;
   const canUndo = mapHistory.history.length > 0;
 
@@ -89,6 +107,14 @@ export function ApartmentMapApp() {
     if (storedMapState) {
       dispatchMapHistory({ type: "hydrate", state: storedMapState });
     }
+
+    const keyLoadTimeout = window.setTimeout(() => {
+      const storedOpenAiKey = loadStoredOpenAiKey();
+      setApiKey(storedOpenAiKey.key);
+      setRemembered(storedOpenAiKey.remembered);
+    }, 0);
+
+    return () => window.clearTimeout(keyLoadTimeout);
   }, []);
 
   function updateMapState(nextState: MapState) {
@@ -113,18 +139,55 @@ export function ApartmentMapApp() {
     clearMapState();
   }
 
-  function applyCurrentProposal() {
-    if (!proposal) {
-      return;
-    }
+  function updateApiKey(nextApiKey: string | null, nextRemembered: boolean) {
+    setApiKey(nextApiKey);
+    setRemembered(nextRemembered);
+  }
 
-    const result = applyProposal(mapState, proposal);
-    if (!result.ok) {
-      return;
-    }
-
-    updateMapState(result.state);
+  function applyReviewedProposal(nextState: MapState) {
+    updateMapState(nextState);
     setProposal(null);
+  }
+
+  function handleListingSearchResponse(response: ListingSearchResponse) {
+    const nextRunId = geocodeRunIdRef.current + 1;
+    geocodeRunIdRef.current = nextRunId;
+    setListings(response.candidates);
+
+    const cachedResult = applyCachedGeocodeEntries(response.candidates);
+    if (cachedResult.changed) {
+      setListings(cachedResult.candidates);
+    }
+
+    if (!response.geocodeAuthorization) {
+      return;
+    }
+
+    const candidatesToGeocode = selectCandidatesToGeocode(
+      response.geocodeAuthorization,
+      response.candidates,
+      cachedResult.cachedCandidateIds,
+    );
+
+    if (candidatesToGeocode.length === 0) {
+      return;
+    }
+
+    void geocodeListingCandidates({
+      authorization: response.geocodeAuthorization,
+      candidates: candidatesToGeocode,
+      onResult: (candidateId, update) => {
+        if (geocodeRunIdRef.current !== nextRunId) {
+          return;
+        }
+
+        setListings((currentListings) =>
+          currentListings.map((listing) =>
+            listing.id === candidateId ? { ...listing, ...update } : listing,
+          ),
+        );
+      },
+    });
   }
 
   return (
@@ -139,13 +202,16 @@ export function ApartmentMapApp() {
         />
       </section>
       <Sidebar
+        apiKey={apiKey}
+        remembered={remembered}
         mapState={mapState}
         selectedZoneIds={selectedZoneIds}
         listings={listings}
         proposal={proposal}
-        onListingsChange={setListings}
+        onApiKeyChange={updateApiKey}
+        onListingSearchResponse={handleListingSearchResponse}
         onProposalChange={setProposal}
-        onApplyProposal={applyCurrentProposal}
+        onApplyProposal={applyReviewedProposal}
         onRejectProposal={() => setProposal(null)}
         onUndo={undoLastEdit}
         onReset={resetLocalMap}
@@ -153,4 +219,200 @@ export function ApartmentMapApp() {
       />
     </main>
   );
+}
+
+type GeocodeListingCandidateOptions = {
+  authorization: GeocodeAuthorization;
+  candidates: ListingCandidate[];
+  onResult: (candidateId: string, update: Partial<ListingCandidate>) => void;
+};
+
+function applyCachedGeocodeEntries(candidates: ListingCandidate[]) {
+  const cache = loadGeocodeCache();
+  const cachedCandidateIds = new Set<string>();
+  let changed = false;
+  const cachedCandidates = candidates.map((candidate) => {
+    if (!candidate.geocodeQuery) {
+      return candidate;
+    }
+
+    const cacheEntry = cache[canonicalizeGeocodeCacheQuery(candidate.geocodeQuery)];
+    if (!cacheEntry) {
+      return candidate;
+    }
+
+    cachedCandidateIds.add(candidate.id);
+    const cachedCandidate = applyCachedGeocodeEntry(candidate, cacheEntry);
+    changed = changed || cachedCandidate !== candidate;
+    return cachedCandidate;
+  });
+
+  return {
+    cachedCandidateIds,
+    candidates: cachedCandidates,
+    changed,
+  };
+}
+
+function applyCachedGeocodeEntry(
+  candidate: ListingCandidate,
+  entry: GeocodeCacheEntry,
+): ListingCandidate {
+  if ("coordinates" in entry) {
+    return {
+      ...candidate,
+      coordinates: entry.coordinates,
+      geocodeStatus:
+        entry.markerPrecision === "exact" ? "geocoded_exact" : "geocoded_approximate",
+      markerPrecision: entry.markerPrecision,
+    };
+  }
+
+  return {
+    ...candidate,
+    geocodeStatus: entry.status,
+  };
+}
+
+function selectCandidatesToGeocode(
+  authorization: GeocodeAuthorization,
+  candidates: ListingCandidate[],
+  cachedCandidateIds: Set<string>,
+) {
+  const allowedCandidateIds = new Set(
+    authorization.allowedQueries.map((allowedQuery) => allowedQuery.candidateId),
+  );
+
+  return candidates
+    .filter(
+      (candidate) =>
+        Boolean(candidate.geocodeQuery) &&
+        allowedCandidateIds.has(candidate.id) &&
+        !cachedCandidateIds.has(candidate.id),
+    )
+    .slice(0, authorization.maxAttempts);
+}
+
+async function geocodeListingCandidates({
+  authorization,
+  candidates,
+  onResult,
+}: GeocodeListingCandidateOptions) {
+  const sessionId = getGeocodeSessionId();
+
+  for (const candidate of candidates) {
+    if (!candidate.geocodeQuery) {
+      continue;
+    }
+
+    try {
+      const response = await fetch("/api/geocode/listing", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sf-apt-session": sessionId,
+        },
+        body: JSON.stringify({
+          nonce: authorization.nonce,
+          candidateId: candidate.id,
+          geocodeQuery: candidate.geocodeQuery,
+        }),
+      });
+      const body: unknown = await response.json().catch(() => null);
+
+      if (response.ok && isSuccessfulGeocodeResponse(body)) {
+        saveGeocodeCacheEntry(candidate.geocodeQuery, {
+          coordinates: body.geocode.coordinates,
+          markerPrecision: body.geocode.markerPrecision,
+        });
+        onResult(candidate.id, {
+          coordinates: body.geocode.coordinates,
+          geocodeStatus:
+            body.geocode.markerPrecision === "exact"
+              ? "geocoded_exact"
+              : "geocoded_approximate",
+          markerPrecision: body.geocode.markerPrecision,
+        });
+        continue;
+      }
+
+      const status = readFailedGeocodeStatus(body);
+      if (status) {
+        saveGeocodeCacheEntry(candidate.geocodeQuery, {
+          status,
+          error: readGeocodeError(body),
+        });
+      }
+      onResult(candidate.id, { geocodeStatus: status ?? "failed" });
+    } catch {
+      onResult(candidate.id, { geocodeStatus: "failed" });
+    }
+  }
+}
+
+function getGeocodeSessionId() {
+  const storageKey = "sf-apt-hunt:geocode-session:v1";
+
+  try {
+    const existingSessionId = window.sessionStorage.getItem(storageKey);
+    if (existingSessionId) {
+      return existingSessionId;
+    }
+
+    const nextSessionId =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `session-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(storageKey, nextSessionId);
+    return nextSessionId;
+  } catch {
+    return "session-unavailable";
+  }
+}
+
+function isSuccessfulGeocodeResponse(value: unknown): value is {
+  ok: true;
+  geocode: {
+    status: "ok";
+    coordinates: Coordinate;
+    markerPrecision: "exact" | "approximate";
+  };
+} {
+  if (!isRecord(value) || value.ok !== true || !isRecord(value.geocode)) {
+    return false;
+  }
+
+  const coordinates = value.geocode.coordinates;
+  return (
+    value.geocode.status === "ok" &&
+    Array.isArray(coordinates) &&
+    coordinates.length === 2 &&
+    coordinates.every((coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate)) &&
+    (value.geocode.markerPrecision === "exact" ||
+      value.geocode.markerPrecision === "approximate")
+  );
+}
+
+function readFailedGeocodeStatus(value: unknown): "failed" | "outside_sf" | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (value.status === "failed" || value.status === "outside_sf") {
+    return value.status;
+  }
+
+  return null;
+}
+
+function readGeocodeError(value: unknown) {
+  if (isRecord(value) && typeof value.error === "string") {
+    return value.error;
+  }
+
+  return "Geocoding request failed.";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

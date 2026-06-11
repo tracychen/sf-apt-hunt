@@ -1,6 +1,11 @@
 "use client";
 
-import type { ListingCandidate, MapPatchProposal, MapState } from "@/lib/domain/types";
+import type {
+  ListingCandidate,
+  ListingSearchResponse,
+  MapPatchProposal,
+  MapState,
+} from "@/lib/domain/types";
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { AssistantPanel } from "@/components/apartment-map/assistant-panel";
 import { ListingResults } from "@/components/apartment-map/listing-results";
@@ -8,11 +13,14 @@ import { ProposalReviewDialog } from "@/components/apartment-map/proposal-review
 import { Button } from "@/components/ui/button";
 
 export function Sidebar({
+  apiKey,
+  remembered,
   mapState,
   selectedZoneIds,
   listings,
   proposal,
-  onListingsChange,
+  onApiKeyChange,
+  onListingSearchResponse,
   onProposalChange,
   onApplyProposal,
   onRejectProposal,
@@ -20,13 +28,16 @@ export function Sidebar({
   onReset,
   canUndo,
 }: {
+  apiKey: string | null;
+  remembered: boolean;
   mapState: MapState;
   selectedZoneIds: string[];
   listings: ListingCandidate[];
   proposal: MapPatchProposal | null;
-  onListingsChange: (listings: ListingCandidate[]) => void;
+  onApiKeyChange: (key: string | null, remembered: boolean) => void;
+  onListingSearchResponse: (response: ListingSearchResponse) => void;
   onProposalChange: (proposal: MapPatchProposal | null) => void;
-  onApplyProposal: () => void;
+  onApplyProposal: (state: MapState) => void;
   onRejectProposal: () => void;
   onUndo: () => void;
   onReset: () => void;
@@ -53,16 +64,21 @@ export function Sidebar({
       </div>
 
       <div className="space-y-4 p-4">
-        <ApiKeyDialog apiKey={null} remembered={false} onApiKeyChange={() => {}} />
+        <ApiKeyDialog
+          apiKey={apiKey}
+          remembered={remembered}
+          onApiKeyChange={onApiKeyChange}
+        />
         <AssistantPanel
-          apiKey={null}
+          apiKey={apiKey}
           mapState={mapState}
           selectedZoneIds={selectedZoneIds}
           onProposalChange={onProposalChange}
-          onListingsChange={onListingsChange}
+          onListingSearchResponse={onListingSearchResponse}
         />
         <ListingResults listings={listings} />
         <ProposalReviewDialog
+          mapState={mapState}
           proposal={proposal}
           onApply={onApplyProposal}
           onReject={onRejectProposal}
