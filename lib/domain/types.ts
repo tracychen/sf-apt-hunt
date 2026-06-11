@@ -2,14 +2,16 @@ export type Priority = "high" | "medium" | "low";
 
 export type Score = 1 | 2 | 3 | 4 | 5;
 
+export type Coordinate = [number, number];
+
 export type PolygonGeometry = {
   type: "Polygon";
-  coordinates: number[][][];
+  coordinates: Coordinate[][];
 };
 
 export type LineStringGeometry = {
   type: "LineString";
-  coordinates: number[][];
+  coordinates: Coordinate[];
 };
 
 export type MapZone = {
@@ -35,7 +37,7 @@ export type TargetCorridor = {
 export type TargetPoint = {
   id: string;
   name: string;
-  coordinates: [number, number];
+  coordinates: Coordinate;
   priority: Priority;
   notes: string[];
 };
@@ -65,7 +67,7 @@ export type ListingCandidate = {
   locationText: string | null;
   geocodeQuery: string | null;
   locationConfidence: "none" | "low" | "medium" | "high";
-  coordinates: [number, number] | null;
+  coordinates: Coordinate | null;
   geocodeStatus:
     | "not_attempted"
     | "geocoded_exact"

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  listingCandidateSchema,
   listingSearchResponseSchema,
   mapPatchProposalSchema,
   mapZoneSchema,
   targetCorridorSchema,
   targetPointSchema,
-} from "../../lib/domain/schemas";
+} from "@/lib/domain/schemas";
 
 const polygon = {
   type: "Polygon",
@@ -121,6 +122,39 @@ describe("domain schemas", () => {
         },
       }),
     ).not.toThrow();
+  });
+
+  it("requires listing prices to be positive integers", () => {
+    const candidate = {
+      id: "listing-1",
+      title: "Studio near Fillmore",
+      url: "https://example.com/listing-1",
+      sourceDomain: "example.com",
+      neighborhoodGuess: "Lower Pac Heights",
+      locationText: "Fillmore St near California St",
+      geocodeQuery: "Fillmore St and California St, San Francisco, CA",
+      locationConfidence: "medium",
+      coordinates: null,
+      geocodeStatus: "not_attempted",
+      markerPrecision: "none",
+      priceMonthly: 2850.5,
+      beds: "studio",
+      shortTermSignal: false,
+      furnishedSignal: false,
+      fitScore: 4,
+      whyItFits: "Within budget and close to target corridor.",
+      citations: [
+        {
+          url: "https://example.com/listing-1",
+          title: "Studio near Fillmore",
+          sourceDomain: "example.com",
+        },
+      ],
+      caveats: ["Verify availability on source site."],
+    };
+
+    expect(() => listingCandidateSchema.parse(candidate)).toThrow();
+    expect(() => listingCandidateSchema.parse({ ...candidate, priceMonthly: 0 })).toThrow();
   });
 
   it("validates priority proposal operations", () => {

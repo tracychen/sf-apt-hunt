@@ -100,7 +100,7 @@ export const listingCandidateSchema: z.ZodType<ListingCandidate> = z.object({
     "outside_sf",
   ]),
   markerPrecision: z.enum(["none", "exact", "approximate"]),
-  priceMonthly: z.number().nullable(),
+  priceMonthly: z.number().int().positive().nullable(),
   beds: z.enum(["studio", "1br", "unknown"]),
   shortTermSignal: z.boolean(),
   furnishedSignal: z.boolean(),
