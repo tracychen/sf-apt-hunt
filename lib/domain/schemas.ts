@@ -31,6 +31,7 @@ const MAX_NAME_LENGTH = 160;
 const MAX_TEXT_LENGTH = 2_000;
 const MAX_LONG_TEXT_LENGTH = 4_000;
 const MAX_URL_LENGTH = 2_048;
+const MAX_GEOCODE_AUTH_NONCE_LENGTH = 4_096;
 const MAX_NOTES = 50;
 const MAX_TAGS = 5;
 const MAX_POLYGON_RINGS = 8;
@@ -52,6 +53,7 @@ const requiredTextSchema = z.string().min(1).max(MAX_TEXT_LENGTH);
 const longTextSchema = z.string().max(MAX_LONG_TEXT_LENGTH);
 const requiredLongTextSchema = z.string().min(1).max(MAX_LONG_TEXT_LENGTH);
 const urlSchema = z.string().url().max(MAX_URL_LENGTH);
+const geocodeAuthNonceSchema = z.string().min(1).max(MAX_GEOCODE_AUTH_NONCE_LENGTH);
 const notesSchema = z.array(textSchema).max(MAX_NOTES);
 
 export const polygonGeometrySchema: z.ZodType<PolygonGeometry> = z.object({
@@ -102,7 +104,7 @@ export const sourceCitationSchema: z.ZodType<SourceCitation> = z.object({
 });
 
 export const geocodeAuthorizationSchema: z.ZodType<GeocodeAuthorization> = z.object({
-  nonce: idSchema,
+  nonce: geocodeAuthNonceSchema,
   expiresAt: z.string().datetime(),
   maxAttempts: z.number().int().positive(),
   allowedQueries: z.array(

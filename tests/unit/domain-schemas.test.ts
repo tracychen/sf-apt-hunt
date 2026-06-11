@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   listingCandidateSchema,
   listingSearchResponseSchema,
@@ -8,6 +8,7 @@ import {
   targetCorridorSchema,
   targetPointSchema,
 } from "@/lib/domain/schemas";
+import { createGeocodeAuthorization } from "@/lib/server/geocode-auth";
 
 const polygon = {
   type: "Polygon",
@@ -121,6 +122,65 @@ describe("domain schemas", () => {
             },
           ],
         },
+      }),
+    ).not.toThrow();
+  });
+
+  it("validates generated geocode authorization tokens in listing search responses", () => {
+    vi.setSystemTime(new Date("2026-06-11T19:00:00.000Z"));
+
+    const candidates = Array.from({ length: 10 }, (_, index) => ({
+      id: `listing-${index + 1}`,
+      geocodeQuery: `${100 + index} Market St`,
+    }));
+    const geocodeAuthorization = createGeocodeAuthorization({
+      secret: "test-secret",
+      candidates,
+      maxAttempts: 10,
+      ttlSeconds: 60,
+    });
+
+    expect(() =>
+      listingSearchResponseSchema.parse({
+        candidates: [
+          {
+            id: "listing-1",
+            title: "Studio near Market",
+            url: "https://example.com/listing-1",
+            sourceDomain: "example.com",
+            neighborhoodGuess: "SoMa",
+            locationText: "100 Market St",
+            geocodeQuery: "100 Market St",
+            locationConfidence: "medium",
+            coordinates: null,
+            geocodeStatus: "not_attempted",
+            markerPrecision: "none",
+            priceMonthly: 2850,
+            beds: "studio",
+            shortTermSignal: false,
+            furnishedSignal: false,
+            fitScore: 4,
+            whyItFits: "Within budget and close to transit.",
+            citations: [
+              {
+                url: "https://example.com/listing-1",
+                title: "Studio near Market",
+                sourceDomain: "example.com",
+              },
+            ],
+            caveats: [],
+          },
+        ],
+        sourceSummary: "One matching listing was found.",
+        citations: [
+          {
+            url: "https://example.com/listing-1",
+            title: "Studio near Market",
+            sourceDomain: "example.com",
+          },
+        ],
+        caveats: [],
+        geocodeAuthorization,
       }),
     ).not.toThrow();
   });
