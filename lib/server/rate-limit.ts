@@ -37,6 +37,10 @@ export async function checkFixedWindowRateLimit({
   }
 
   const ttl = await redis.ttl(key);
+  if (ttl === -1) {
+    await redis.expire(key, windowSeconds);
+  }
+
   const resetInSeconds = ttl > 0 ? ttl : windowSeconds;
 
   return {

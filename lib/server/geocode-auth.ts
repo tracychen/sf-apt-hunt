@@ -40,8 +40,13 @@ export function canonicalizeGeocodeQuery(query: string) {
     .replace(/^,\s*|\s*,\s*$/g, "")
     .trim();
 
-  if (/\bsan\s+francisco\b|\bsf\b/.test(canonical)) {
-    return canonical;
+  const baseQuery = canonical
+    .replace(/(?:^|,\s*|\s+)san francisco(?:\s*,?\s*ca)?$/i, "")
+    .replace(/^,\s*|\s*,\s*$/g, "")
+    .trim();
+
+  if (baseQuery !== canonical) {
+    return baseQuery.length > 0 ? `${baseQuery}, san francisco ca` : "san francisco ca";
   }
 
   return canonical.length > 0 ? `${canonical}, san francisco ca` : "san francisco ca";
