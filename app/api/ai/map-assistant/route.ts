@@ -20,7 +20,7 @@ const mapAssistantRequestSchema = z
 const mapAssistantResponseSchema = z
   .object({
     explanation: z.string().min(1).max(4_000),
-    intent: z.string().min(1).max(160),
+    intent: z.enum(["map_edit", "prioritization", "comparison", "listing_search", "unknown"]),
     proposal: mapPatchProposalSchema.nullable(),
     confidence: z.enum(["low", "medium", "high"]),
     caveats: z.array(z.string().max(2_000)).max(50),
@@ -289,7 +289,7 @@ const mapAssistantJsonSchema = {
   required: ["explanation", "intent", "proposal", "confidence", "caveats"],
   properties: {
     explanation: { type: "string", minLength: 1, maxLength: 4000 },
-    intent: { type: "string", minLength: 1, maxLength: 160 },
+    intent: { enum: ["map_edit", "prioritization", "comparison", "listing_search", "unknown"] },
     proposal: {
       anyOf: [mapPatchProposalJsonSchema, { type: "null" }],
     },

@@ -42,7 +42,7 @@ describe("POST /api/ai/map-assistant", () => {
   it("sends store false to OpenAI and parses a valid proposal response", async () => {
     const proposalResponse = {
       explanation: "I found one map update worth reviewing.",
-      intent: "add_note",
+      intent: "map_edit",
       proposal: {
         summary: "Add a renter note to Lower Pac Heights.",
         operations: [
@@ -107,5 +107,33 @@ describe("POST /api/ai/map-assistant", () => {
         },
       },
     });
+  });
+
+  it("rejects structured output with an unsupported intent", async () => {
+    mockOpenAiResponse({
+      output_text: JSON.stringify({
+        explanation: "I found one map update worth reviewing.",
+        intent: "add_note",
+        proposal: null,
+        confidence: "medium",
+        caveats: [],
+      }),
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          message: "Add a note about Lower Pac Heights.",
+          mapState: seedMapState,
+        },
+        "Bearer sk-test-map",
+      ),
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: "Invalid map assistant request.",
+    });
+    expect(response.status).toBe(400);
   });
 });
