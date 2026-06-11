@@ -2,7 +2,7 @@
 
 import type {} from "@geoman-io/leaflet-geoman-free";
 import L, { type LatLngExpression, type LatLngTuple, type PathOptions } from "leaflet";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Marker,
@@ -15,6 +15,12 @@ import {
   useMap,
 } from "react-leaflet";
 import type { Coordinate, ListingCandidate, MapState, Priority } from "@/lib/domain/types";
+import {
+  applyCorridorGeometryEdit,
+  applyTargetCoordinateEdit,
+  applyZoneGeometryEdit,
+  type PersistResult,
+} from "@/components/apartment-map/leaflet-map-state";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
@@ -39,6 +45,12 @@ type LeafletGlobal = typeof globalThis & {
   L?: typeof L;
 };
 
+type LeafletWithGeoman = typeof L & {
+  PM?: {
+    reInitLayer: (layer: L.Layer) => void;
+  };
+};
+
 const SF_CENTER: LatLngTuple = [37.7749, -122.4194];
 const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const DEFAULT_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
@@ -58,8 +70,27 @@ function toLatLng([lng, lat]: Coordinate): LatLngTuple {
   return [lat, lng];
 }
 
+function fromLatLng(latLng: L.LatLng): Coordinate {
+  return [latLng.lng, latLng.lat];
+}
+
 function formatCoordinate([lng, lat]: Coordinate) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+function polygonRingCoordinates(layer: L.Polygon): Coordinate[] {
+  const latLngs = layer.getLatLngs();
+  const first = latLngs[0];
+  const ring = Array.isArray(first) ? first : latLngs;
+
+  return (ring as L.LatLng[]).map(fromLatLng);
+}
+
+function polylineCoordinates(layer: L.Polyline): Coordinate[] {
+  const latLngs = layer.getLatLngs();
+  const line = Array.isArray(latLngs[0]) ? latLngs[0] : latLngs;
+
+  return (line as L.LatLng[]).map(fromLatLng);
 }
 
 function zonePathOptions(selected: boolean, kind: "neighborhood" | "caution"): PathOptions {
@@ -104,50 +135,240 @@ function corridorPathOptions(priority: Priority): PathOptions {
   return { color: "#475569", opacity: 0.8, weight: 3 };
 }
 
-function GeomanControls({
-  mapState,
-  onMapStateChange,
-}: Pick<LeafletMapProps, "mapState" | "onMapStateChange">) {
+function GeomanControls() {
   const map = useMap();
-  const mapStateRef = useRef(mapState);
-  const onMapStateChangeRef = useRef(onMapStateChange);
-
-  useEffect(() => {
-    mapStateRef.current = mapState;
-    onMapStateChangeRef.current = onMapStateChange;
-  }, [mapState, onMapStateChange]);
 
   useEffect(() => {
     map.pm.addControls({
       position: "topleft",
       drawMarker: false,
       drawCircleMarker: false,
+      drawPolyline: false,
+      drawPolygon: false,
       drawCircle: false,
       drawRectangle: false,
       drawText: false,
       cutPolygon: false,
+      removalMode: false,
       rotateMode: false,
     });
     map.pm.setGlobalOptions({
       allowSelfIntersection: false,
     });
+    map.pm.enableGlobalEditMode();
     map.invalidateSize();
 
-    const handleManualEdit = () => {
-      onMapStateChangeRef.current(mapStateRef.current);
-    };
-
-    map.on("pm:edit", handleManualEdit);
-    map.on("pm:update", handleManualEdit);
-
     return () => {
-      map.off("pm:edit", handleManualEdit);
-      map.off("pm:update", handleManualEdit);
+      if (map.pm.globalEditModeEnabled()) {
+        map.pm.disableGlobalEditMode();
+      }
       map.pm.removeControls();
     };
   }, [map]);
 
   return null;
+}
+
+function usePersistentEditedLayer<TLayer extends L.Layer>(
+  layer: TLayer | null,
+  mapState: MapState,
+  onMapStateChange: (state: MapState) => void,
+  deriveNextState: (layer: TLayer, mapState: MapState) => PersistResult,
+) {
+  const mapStateRef = useRef(mapState);
+  const onMapStateChangeRef = useRef(onMapStateChange);
+  const deriveNextStateRef = useRef(deriveNextState);
+
+  useEffect(() => {
+    mapStateRef.current = mapState;
+    onMapStateChangeRef.current = onMapStateChange;
+    deriveNextStateRef.current = deriveNextState;
+  }, [deriveNextState, mapState, onMapStateChange]);
+
+  useEffect(() => {
+    if (!layer) {
+      return;
+    }
+
+    let editTimeout: number | null = null;
+
+    const persist = () => {
+      const nextState = deriveNextStateRef.current(layer, mapStateRef.current);
+
+      if (!nextState) {
+        return;
+      }
+
+      mapStateRef.current = nextState;
+      onMapStateChangeRef.current(nextState);
+    };
+
+    const persistAfterEditSettles = () => {
+      if (editTimeout !== null) {
+        window.clearTimeout(editTimeout);
+      }
+
+      editTimeout = window.setTimeout(persist, 120);
+    };
+
+    layer.on("pm:edit", persistAfterEditSettles);
+    layer.on("pm:change", persistAfterEditSettles);
+    layer.on("pm:update", persist);
+    layer.on("pm:markerdragend", persist);
+    layer.on("pm:dragend", persist);
+    layer.on("dragend", persist);
+    layer.on("moveend", persist);
+
+    return () => {
+      if (editTimeout !== null) {
+        window.clearTimeout(editTimeout);
+      }
+
+      layer.off("pm:edit", persistAfterEditSettles);
+      layer.off("pm:change", persistAfterEditSettles);
+      layer.off("pm:update", persist);
+      layer.off("pm:markerdragend", persist);
+      layer.off("pm:dragend", persist);
+      layer.off("dragend", persist);
+      layer.off("moveend", persist);
+    };
+  }, [layer]);
+}
+
+function ZonePolygon({
+  children,
+  mapState,
+  onMapStateChange,
+  onToggle,
+  positions,
+  selected,
+  zoneId,
+  zoneKind,
+  zoneName,
+}: {
+  children: ReactNode;
+  mapState: MapState;
+  onMapStateChange: (state: MapState) => void;
+  onToggle: () => void;
+  positions: LatLngExpression[][];
+  selected: boolean;
+  zoneId: string;
+  zoneKind: "neighborhood" | "caution";
+  zoneName: string;
+}) {
+  const [polygonLayer, setPolygonLayer] = useState<L.Polygon | null>(null);
+
+  usePersistentEditedLayer(polygonLayer, mapState, onMapStateChange, (layer, currentMapState) =>
+    applyZoneGeometryEdit(currentMapState, zoneId, polygonRingCoordinates(layer)),
+  );
+
+  return (
+    <Polygon
+      ref={setPolygonLayer}
+      positions={positions}
+      pathOptions={zonePathOptions(selected, zoneKind)}
+      eventHandlers={{ click: onToggle }}
+    >
+      <Tooltip sticky>{zoneName}</Tooltip>
+      {children}
+    </Polygon>
+  );
+}
+
+function CorridorPolyline({
+  children,
+  corridorId,
+  mapState,
+  onMapStateChange,
+  pathOptions,
+  positions,
+}: {
+  children: ReactNode;
+  corridorId: string;
+  mapState: MapState;
+  onMapStateChange: (state: MapState) => void;
+  pathOptions: PathOptions;
+  positions: LatLngExpression[];
+}) {
+  const [polylineLayer, setPolylineLayer] = useState<L.Polyline | null>(null);
+
+  usePersistentEditedLayer(polylineLayer, mapState, onMapStateChange, (layer, currentMapState) =>
+    applyCorridorGeometryEdit(currentMapState, corridorId, polylineCoordinates(layer)),
+  );
+
+  return (
+    <Polyline ref={setPolylineLayer} positions={positions} pathOptions={pathOptions}>
+      {children}
+    </Polyline>
+  );
+}
+
+function TargetMarker({
+  children,
+  mapState,
+  onMapStateChange,
+  position,
+  targetId,
+  title,
+}: {
+  children: ReactNode;
+  mapState: MapState;
+  onMapStateChange: (state: MapState) => void;
+  position: LatLngExpression;
+  targetId: string;
+  title: string;
+}) {
+  const [markerLayer, setMarkerLayer] = useState<L.Marker | null>(null);
+
+  function persistTargetPosition(layer: L.Marker) {
+    const nextState = applyTargetCoordinateEdit(mapState, targetId, fromLatLng(layer.getLatLng()));
+
+    if (nextState) {
+      onMapStateChange(nextState);
+    }
+  }
+
+  usePersistentEditedLayer(markerLayer, mapState, onMapStateChange, (layer, currentMapState) =>
+    applyTargetCoordinateEdit(currentMapState, targetId, fromLatLng(layer.getLatLng())),
+  );
+
+  return (
+    <Marker
+      ref={setMarkerLayer}
+      position={position}
+      title={title}
+      draggable
+      eventHandlers={{ dragend: (event) => persistTargetPosition(event.target as L.Marker) }}
+    >
+      {children}
+    </Marker>
+  );
+}
+
+function ListingMarker({
+  children,
+  position,
+  title,
+}: {
+  children: ReactNode;
+  position: LatLngExpression;
+  title: string;
+}) {
+  const [markerLayer, setMarkerLayer] = useState<L.Marker | null>(null);
+
+  useEffect(() => {
+    if (!markerLayer) {
+      return;
+    }
+
+    (L as LeafletWithGeoman).PM?.reInitLayer(markerLayer);
+  }, [markerLayer]);
+
+  return (
+    <Marker ref={setMarkerLayer} position={position} title={title} pmIgnore>
+      {children}
+    </Marker>
+  );
 }
 
 export function LeafletMap({
@@ -208,20 +429,24 @@ export function LeafletMap({
       >
         <TileLayer attribution={tileAttribution} url={tileUrl} />
         <ZoomControl position="bottomright" />
-        <GeomanControls mapState={mapState} onMapStateChange={onMapStateChange} />
+        <GeomanControls />
 
         {mapState.zones.map((zone) => {
           const selected = selectedZoneSet.has(zone.id);
           const positions = zone.geometry.coordinates.map((ring) => ring.map(toLatLng));
 
           return (
-            <Polygon
+            <ZonePolygon
               key={zone.id}
               positions={positions as LatLngExpression[][]}
-              pathOptions={zonePathOptions(selected, zone.kind)}
-              eventHandlers={{ click: () => toggleZone(zone.id) }}
+              selected={selected}
+              zoneId={zone.id}
+              zoneKind={zone.kind}
+              zoneName={zone.name}
+              mapState={mapState}
+              onMapStateChange={onMapStateChange}
+              onToggle={() => toggleZone(zone.id)}
             >
-              <Tooltip sticky>{zone.name}</Tooltip>
               <Popup>
                 <div className="space-y-1 text-sm">
                   <p className="font-semibold">{zone.name}</p>
@@ -231,13 +456,16 @@ export function LeafletMap({
                   </p>
                 </div>
               </Popup>
-            </Polygon>
+            </ZonePolygon>
           );
         })}
 
         {mapState.corridors.map((corridor) => (
-          <Polyline
+          <CorridorPolyline
             key={corridor.id}
+            corridorId={corridor.id}
+            mapState={mapState}
+            onMapStateChange={onMapStateChange}
             positions={corridor.geometry.coordinates.map(toLatLng)}
             pathOptions={corridorPathOptions(corridor.priority)}
           >
@@ -249,11 +477,18 @@ export function LeafletMap({
                 <p>{corridor.notes[0]}</p>
               </div>
             </Popup>
-          </Polyline>
+          </CorridorPolyline>
         ))}
 
         {mapState.targets.map((target) => (
-          <Marker key={target.id} position={toLatLng(target.coordinates)}>
+          <TargetMarker
+            key={target.id}
+            mapState={mapState}
+            onMapStateChange={onMapStateChange}
+            position={toLatLng(target.coordinates)}
+            targetId={target.id}
+            title={target.name}
+          >
             <Popup>
               <div className="space-y-1 text-sm">
                 <p className="font-semibold">{target.name}</p>
@@ -261,11 +496,11 @@ export function LeafletMap({
                 <p>{formatCoordinate(target.coordinates)}</p>
               </div>
             </Popup>
-          </Marker>
+          </TargetMarker>
         ))}
 
         {listingPins.map((listing) => (
-          <Marker key={listing.id} position={toLatLng(listing.coordinates)}>
+          <ListingMarker key={listing.id} position={toLatLng(listing.coordinates)} title={listing.title}>
             <Popup>
               <div className="space-y-1 text-sm">
                 <p className="font-semibold">{listing.title}</p>
@@ -274,7 +509,7 @@ export function LeafletMap({
                 {listing.priceMonthly ? <p>${listing.priceMonthly.toLocaleString()}/mo</p> : null}
               </div>
             </Popup>
-          </Marker>
+          </ListingMarker>
         ))}
       </MapContainer>
 

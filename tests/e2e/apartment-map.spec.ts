@@ -20,6 +20,8 @@ test("renders editable apartment map shell", async ({ page }) => {
   await expect(page.getByText("SF Apartment Hunt")).toBeVisible();
   await expect(page.getByText("Boundaries are approximate apartment-search zones")).toBeVisible();
   await expect(page.locator(".leaflet-container")).toBeVisible();
+  await expect(page.locator(".leaflet-pm-toolbar")).toBeVisible();
+  await expect(page.locator(".leaflet-pm-icon-edit")).toBeVisible();
 });
 
 test("fits the apartment map on a mobile viewport without horizontal overflow", async ({ page }) => {

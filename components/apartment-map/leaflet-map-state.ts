@@ -1,0 +1,107 @@
+import type { Coordinate, MapState } from "@/lib/domain/types";
+
+export type PersistResult = MapState | null;
+
+export function coordinatesEqual(left: Coordinate[], right: Coordinate[]) {
+  return (
+    left.length === right.length &&
+    left.every(
+      (coordinate, index) =>
+        coordinate[0] === right[index]?.[0] && coordinate[1] === right[index]?.[1],
+    )
+  );
+}
+
+export function coordinateEqual(left: Coordinate, right: Coordinate) {
+  return left[0] === right[0] && left[1] === right[1];
+}
+
+export function closeRing(coordinates: Coordinate[]) {
+  const first = coordinates[0];
+  const last = coordinates.at(-1);
+
+  if (!first || !last || coordinateEqual(first, last)) {
+    return coordinates;
+  }
+
+  return [...coordinates, first];
+}
+
+export function applyZoneGeometryEdit(
+  mapState: MapState,
+  zoneId: string,
+  coordinates: Coordinate[],
+): PersistResult {
+  const nextCoordinates = closeRing(coordinates);
+  const zone = mapState.zones.find((item) => item.id === zoneId);
+
+  if (!zone || coordinatesEqual(zone.geometry.coordinates[0] ?? [], nextCoordinates)) {
+    return null;
+  }
+
+  return {
+    ...mapState,
+    zones: mapState.zones.map((item) =>
+      item.id === zoneId
+        ? {
+            ...item,
+            geometry: {
+              ...item.geometry,
+              coordinates: [nextCoordinates],
+            },
+          }
+        : item,
+    ),
+  };
+}
+
+export function applyCorridorGeometryEdit(
+  mapState: MapState,
+  corridorId: string,
+  coordinates: Coordinate[],
+): PersistResult {
+  const corridor = mapState.corridors.find((item) => item.id === corridorId);
+
+  if (!corridor || coordinatesEqual(corridor.geometry.coordinates, coordinates)) {
+    return null;
+  }
+
+  return {
+    ...mapState,
+    corridors: mapState.corridors.map((item) =>
+      item.id === corridorId
+        ? {
+            ...item,
+            geometry: {
+              ...item.geometry,
+              coordinates,
+            },
+          }
+        : item,
+    ),
+  };
+}
+
+export function applyTargetCoordinateEdit(
+  mapState: MapState,
+  targetId: string,
+  coordinates: Coordinate,
+): PersistResult {
+  const target = mapState.targets.find((item) => item.id === targetId);
+
+  if (!target || coordinateEqual(target.coordinates, coordinates)) {
+    return null;
+  }
+
+  return {
+    ...mapState,
+    targets: mapState.targets.map((item) =>
+      item.id === targetId
+        ? {
+            ...item,
+            coordinates,
+          }
+        : item,
+    ),
+  };
+}
