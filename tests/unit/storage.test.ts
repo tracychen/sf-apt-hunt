@@ -252,19 +252,47 @@ describe("map storage", () => {
     );
 
     expect(loadGeocodeCache(localStorage)).toEqual({
-      "fillmore st and california st, san francisco, ca": {
+      "fillmore st and california st, san francisco ca": {
         coordinates: [-122.433, 37.789],
         markerPrecision: "exact",
       },
     });
     expect(localStorage.getItem(geocodeCacheStorageKey)).toBe(
       JSON.stringify({
-        "fillmore st and california st, san francisco, ca": {
+        "fillmore st and california st, san francisco ca": {
           coordinates: [-122.433, 37.789],
           markerPrecision: "exact",
         },
       }),
     );
+  });
+
+  it("stores equivalent geocode queries with and without San Francisco suffix under one cache key", () => {
+    const localStorage = new FakeStorage();
+
+    saveGeocodeCacheEntry(
+      "Fillmore and California",
+      {
+        coordinates: [-122.433, 37.789],
+        markerPrecision: "exact",
+      },
+      localStorage,
+    );
+    saveGeocodeCacheEntry(
+      "Fillmore and California, San Francisco CA",
+      {
+        coordinates: [-122.434, 37.79],
+        markerPrecision: "approximate",
+      },
+      localStorage,
+    );
+
+    expect(loadGeocodeCache(localStorage)).toEqual({
+      "fillmore and california, san francisco ca": {
+        coordinates: [-122.434, 37.79],
+        markerPrecision: "approximate",
+      },
+    });
   });
 
   it("stores failed geocode cache entries by normalized query", () => {
@@ -280,14 +308,14 @@ describe("map storage", () => {
     );
 
     expect(loadGeocodeCache(localStorage)).toEqual({
-      "no such listing, san francisco, ca": {
+      "no such listing, san francisco ca": {
         status: "failed",
         error: "No geocode result found.",
       },
     });
     expect(localStorage.getItem(geocodeCacheStorageKey)).toBe(
       JSON.stringify({
-        "no such listing, san francisco, ca": {
+        "no such listing, san francisco ca": {
           status: "failed",
           error: "No geocode result found.",
         },

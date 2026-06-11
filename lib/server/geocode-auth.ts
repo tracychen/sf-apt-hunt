@@ -1,6 +1,9 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import type { GeocodeAuthorization } from "@/lib/domain/types";
+import { canonicalizeGeocodeQuery } from "@/lib/geocode/canonicalize";
+
+export { canonicalizeGeocodeQuery } from "@/lib/geocode/canonicalize";
 
 type GeocodeAuthorizationPayload = Omit<GeocodeAuthorization, "nonce">;
 
@@ -29,28 +32,6 @@ type VerifyGeocodeAuthorizationResult =
       ok: false;
       error: "malformed_nonce" | "invalid_signature" | "expired" | "query_not_allowed";
     };
-
-export function canonicalizeGeocodeQuery(query: string) {
-  const canonical = query
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/\s*,\s*/g, ", ")
-    .replace(/(?:,\s*)+/g, ", ")
-    .replace(/^,\s*|\s*,\s*$/g, "")
-    .trim();
-
-  const baseQuery = canonical
-    .replace(/(?:^|,\s*|\s+)san francisco(?:\s*,?\s*ca)?$/i, "")
-    .replace(/^,\s*|\s*,\s*$/g, "")
-    .trim();
-
-  if (baseQuery !== canonical) {
-    return baseQuery.length > 0 ? `${baseQuery}, san francisco ca` : "san francisco ca";
-  }
-
-  return canonical.length > 0 ? `${canonical}, san francisco ca` : "san francisco ca";
-}
 
 export function hashCanonicalGeocodeQuery(query: string) {
   return createHash("sha256").update(canonicalizeGeocodeQuery(query)).digest("hex");

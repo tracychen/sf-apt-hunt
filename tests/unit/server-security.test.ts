@@ -1,10 +1,11 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 import { describe, expect, it, vi } from "vitest";
 
 import {
   canonicalizeGeocodeQuery,
   createGeocodeAuthorization,
+  hashCanonicalGeocodeQuery,
   verifyGeocodeAuthorization,
 } from "@/lib/server/geocode-auth";
 import { checkFixedWindowRateLimit } from "@/lib/server/rate-limit";
@@ -80,6 +81,17 @@ describe("geocode query authorization", () => {
   it("canonicalizes explicit San Francisco punctuation consistently", () => {
     expect(canonicalizeGeocodeQuery("Fillmore and California, San Francisco, CA")).toBe(
       canonicalizeGeocodeQuery("Fillmore and California San Francisco CA"),
+    );
+  });
+
+  it("hashes equivalent San Francisco queries with the same canonical value", () => {
+    expect(hashCanonicalGeocodeQuery("Fillmore and California")).toBe(
+      hashCanonicalGeocodeQuery("Fillmore and California, San Francisco CA"),
+    );
+    expect(hashCanonicalGeocodeQuery("Fillmore and California")).toBe(
+      createHash("sha256")
+        .update("fillmore and california, san francisco ca")
+        .digest("hex"),
     );
   });
 

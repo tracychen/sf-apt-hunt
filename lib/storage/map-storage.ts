@@ -1,5 +1,8 @@
 import { mapStateSchema } from "@/lib/domain/schemas";
 import type { MapState } from "@/lib/domain/types";
+import { canonicalizeGeocodeQuery } from "@/lib/geocode/canonicalize";
+
+export { canonicalizeGeocodeQuery as canonicalizeGeocodeCacheQuery } from "@/lib/geocode/canonicalize";
 
 const mapStateStorageKey = "sf-apt-hunt:map-state:v1";
 const geocodeCacheStorageKey = "sf-apt-hunt:geocode-cache:v1";
@@ -34,10 +37,6 @@ function resolveLocalStorage(storage?: StorageLike): StorageLike | null {
   } catch {
     return null;
   }
-}
-
-export function canonicalizeGeocodeCacheQuery(query: string) {
-  return query.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function parseJson(raw: string) {
@@ -200,6 +199,6 @@ export function saveGeocodeCacheEntry(
   }
 
   const cache = cacheResult.cache;
-  cache[canonicalizeGeocodeCacheQuery(query)] = entry;
+  cache[canonicalizeGeocodeQuery(query)] = entry;
   safeSetItem(localStorage, geocodeCacheStorageKey, JSON.stringify(cache));
 }
