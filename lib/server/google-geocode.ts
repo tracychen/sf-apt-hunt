@@ -14,7 +14,7 @@ type GoogleGeocodeResult = {
 type GoogleGeocodeResponse = {
   status: string;
   error_message?: string;
-  results: GoogleGeocodeResult[];
+  results: unknown[];
 };
 
 export type ListingGeocodeResult =
@@ -72,9 +72,15 @@ export async function geocodeListingLocation({
       return { status: "failed", error: "No geocode result found." };
     }
 
+    const parsedResult = parseGoogleGeocodeResult(firstResult);
+
+    if (!parsedResult) {
+      return { status: "failed", error: "Google Geocoding response was invalid." };
+    }
+
     const coordinates: [number, number] = [
-      firstResult.geometry.location.lng,
-      firstResult.geometry.location.lat,
+      parsedResult.geometry.location.lng,
+      parsedResult.geometry.location.lat,
     ];
 
     if (!isCoordinateInSfBounds(coordinates)) {
@@ -85,8 +91,8 @@ export async function geocodeListingLocation({
       status: "ok",
       coordinates,
       markerPrecision:
-        firstResult.geometry.location_type === "ROOFTOP" ? "exact" : "approximate",
-      formattedAddress: firstResult.formatted_address,
+        parsedResult.geometry.location_type === "ROOFTOP" ? "exact" : "approximate",
+      formattedAddress: parsedResult.formatted_address,
     };
   } catch {
     return { status: "failed", error: "Google Geocoding request failed." };
@@ -102,50 +108,48 @@ async function parseGoogleGeocodeResponse(
     return null;
   }
 
-  const results = data.results.flatMap((result): GoogleGeocodeResult[] => {
-    if (!isRecord(result)) {
-      return [];
-    }
-
-    const geometry = result.geometry;
-    if (!isRecord(geometry)) {
-      return [];
-    }
-
-    const location = geometry.location;
-    if (!isRecord(location)) {
-      return [];
-    }
-
-    const lng = location.lng;
-    const lat = location.lat;
-
-    if (
-      typeof result.formatted_address !== "string" ||
-      typeof geometry.location_type !== "string" ||
-      typeof lng !== "number" ||
-      typeof lat !== "number" ||
-      !Number.isFinite(lng) ||
-      !Number.isFinite(lat)
-    ) {
-      return [];
-    }
-
-    return [
-      {
-        formatted_address: result.formatted_address,
-        geometry: {
-          location: { lng, lat },
-          location_type: geometry.location_type,
-        },
-      },
-    ];
-  });
-
   return {
     status: data.status,
     error_message: typeof data.error_message === "string" ? data.error_message : undefined,
-    results,
+    results: data.results,
+  };
+}
+
+function parseGoogleGeocodeResult(result: unknown): GoogleGeocodeResult | null {
+  if (!isRecord(result)) {
+    return null;
+  }
+
+  const geometry = result.geometry;
+  if (!isRecord(geometry)) {
+    return null;
+  }
+
+  const location = geometry.location;
+  if (!isRecord(location)) {
+    return null;
+  }
+
+  const lng = location.lng;
+  const lat = location.lat;
+
+  if (
+    typeof result.formatted_address !== "string" ||
+    typeof geometry.location_type !== "string" ||
+    typeof lng !== "number" ||
+    typeof lat !== "number" ||
+    !Number.isFinite(lng) ||
+    !Number.isFinite(lat)
+  ) {
+    return null;
+  }
+
+  return {
+    formatted_address: result.formatted_address,
+    geometry: {
+      location: { lng, lat },
+      location_type: geometry.location_type,
+    },
   };
 }
 

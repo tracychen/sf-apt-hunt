@@ -67,4 +67,38 @@ describe("geocodeListingLocation", () => {
       error: "Geocode result is outside San Francisco.",
     });
   });
+
+  it("fails when the top Google result has malformed coordinates", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        status: "OK",
+        results: [
+          {
+            formatted_address: "Malformed top result, San Francisco, CA, USA",
+            geometry: {
+              location: { lng: Number.NaN, lat: 37.789 },
+              location_type: "ROOFTOP",
+            },
+          },
+          {
+            formatted_address: "Fillmore St & California St, San Francisco, CA 94115, USA",
+            geometry: {
+              location: { lng: -122.433, lat: 37.789 },
+              location_type: "ROOFTOP",
+            },
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      geocodeListingLocation({
+        apiKey: "google-key",
+        query: "Fillmore and California, San Francisco, CA",
+      }),
+    ).resolves.toEqual({
+      status: "failed",
+      error: "Google Geocoding response was invalid.",
+    });
+  });
 });
