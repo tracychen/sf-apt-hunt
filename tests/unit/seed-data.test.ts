@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { mapStateSchema } from "@/lib/domain/schemas";
-import { isCoordinateInSfBounds } from "@/lib/map/sf-bounds";
+import {
+  isCoordinateInSfBounds,
+  isLineStringInSfBounds,
+  isPolygonInSfBounds,
+} from "@/lib/map/sf-bounds";
 import { seedMapState } from "@/lib/map/seed-data";
 
 describe("seedMapState", () => {
@@ -25,5 +29,21 @@ describe("seedMapState", () => {
     for (const target of seedMapState.targets) {
       expect(isCoordinateInSfBounds(target.coordinates)).toBe(true);
     }
+  });
+
+  it("keeps all zone polygons inside SF bounds with valid ring structure", () => {
+    for (const zone of seedMapState.zones) {
+      expect(isPolygonInSfBounds(zone.geometry)).toBe(true);
+    }
+  });
+
+  it("keeps all corridor lines inside SF bounds", () => {
+    for (const corridor of seedMapState.corridors) {
+      expect(isLineStringInSfBounds(corridor.geometry)).toBe(true);
+    }
+  });
+
+  it("rejects coordinates with extra values", () => {
+    expect(isCoordinateInSfBounds([-122.433, 37.789, 10])).toBe(false);
   });
 });

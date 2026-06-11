@@ -11,6 +11,7 @@ export function isCoordinateInSfBounds(coordinate: readonly [number, number] | n
   const [lng, lat] = coordinate;
 
   return (
+    coordinate.length === 2 &&
     Number.isFinite(lng) &&
     Number.isFinite(lat) &&
     lng >= SF_BOUNDS.minLng &&
@@ -20,8 +21,19 @@ export function isCoordinateInSfBounds(coordinate: readonly [number, number] | n
   );
 }
 
+export function isPolygonRingClosed(ring: Array<[number, number]>) {
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+
+  return Boolean(first && last && first[0] === last[0] && first[1] === last[1]);
+}
+
+function isValidPolygonRing(ring: Array<[number, number]>) {
+  return ring.length >= 4 && isPolygonRingClosed(ring) && ring.every(isCoordinateInSfBounds);
+}
+
 export function isPolygonInSfBounds(geometry: PolygonGeometry) {
-  return geometry.coordinates.every((ring) => ring.every(isCoordinateInSfBounds));
+  return geometry.coordinates.length > 0 && geometry.coordinates.every(isValidPolygonRing);
 }
 
 export function isLineStringInSfBounds(geometry: LineStringGeometry) {
@@ -36,7 +48,7 @@ export function closePolygonRing(ring: Array<[number, number]>) {
     return ring;
   }
 
-  if (first[0] === last[0] && first[1] === last[1]) {
+  if (isPolygonRingClosed(ring)) {
     return ring;
   }
 

@@ -10,6 +10,14 @@ export type ProposalApplyResult =
   | { ok: true; state: MapState }
   | { ok: false; error: string };
 
+function hasEntityId(state: MapState, id: string) {
+  return (
+    state.zones.some((zone) => zone.id === id) ||
+    state.corridors.some((corridor) => corridor.id === id) ||
+    state.targets.some((target) => target.id === id)
+  );
+}
+
 export function applyProposal(state: MapState, proposal: MapPatchProposal): ProposalApplyResult {
   const parsed = mapPatchProposalSchema.safeParse(proposal);
 
@@ -26,8 +34,8 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
           return { ok: false, error: "Target coordinates are outside San Francisco." };
         }
 
-        if (nextState.targets.some((target) => target.id === operation.target.id)) {
-          return { ok: false, error: "Target ID already exists." };
+        if (hasEntityId(nextState, operation.target.id)) {
+          return { ok: false, error: "Map entity ID already exists." };
         }
 
         nextState = {
@@ -42,8 +50,8 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
           return { ok: false, error: "Corridor geometry is outside San Francisco." };
         }
 
-        if (nextState.corridors.some((corridor) => corridor.id === operation.corridor.id)) {
-          return { ok: false, error: "Corridor ID already exists." };
+        if (hasEntityId(nextState, operation.corridor.id)) {
+          return { ok: false, error: "Map entity ID already exists." };
         }
 
         nextState = {
@@ -139,12 +147,7 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
       }
 
       case "addNote": {
-        const hasEntity =
-          nextState.zones.some((zone) => zone.id === operation.entityId) ||
-          nextState.corridors.some((corridor) => corridor.id === operation.entityId) ||
-          nextState.targets.some((target) => target.id === operation.entityId);
-
-        if (!hasEntity) {
+        if (!hasEntityId(nextState, operation.entityId)) {
           return { ok: false, error: "Unknown entity ID." };
         }
 
