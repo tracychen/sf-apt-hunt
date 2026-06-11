@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const parsedOutput = JSON.parse(outputText);
+    const parsedOutput = normalizeMapAssistantResponse(JSON.parse(outputText));
     const parsedResponse = mapAssistantResponseSchema.parse(parsedOutput);
 
     return Response.json(parsedResponse);
@@ -117,7 +117,42 @@ function getErrorDetails(error: unknown) {
   return error;
 }
 
+function normalizeMapAssistantResponse(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.proposal) || !Array.isArray(value.proposal.operations)) {
+    return value;
+  }
+
+  return {
+    ...value,
+    proposal: {
+      ...value.proposal,
+      operations: value.proposal.operations.map(normalizeMapPatchOperation),
+    },
+  };
+}
+
+function normalizeMapPatchOperation(operation: unknown) {
+  if (!isRecord(operation) || operation.type !== "updateZoneScores") {
+    return operation;
+  }
+
+  const normalizedOperation = { ...operation };
+
+  for (const scoreField of ["fitnessScore", "affordabilityScore", "carFreeScore"] as const) {
+    if (normalizedOperation[scoreField] === null) {
+      delete normalizedOperation[scoreField];
+    }
+  }
+
+  return normalizedOperation;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 const scoreJsonSchema = { enum: [1, 2, 3, 4, 5] };
+const nullableScoreJsonSchema = { anyOf: [scoreJsonSchema, { type: "null" }] };
 const priorityJsonSchema = { enum: ["high", "medium", "low"] };
 const coordinateJsonSchema = {
   type: "array",
@@ -246,13 +281,19 @@ const mapPatchProposalJsonSchema = {
           {
             type: "object",
             additionalProperties: false,
-            required: ["type", "zoneId"],
+            required: [
+              "type",
+              "zoneId",
+              "fitnessScore",
+              "affordabilityScore",
+              "carFreeScore",
+            ],
             properties: {
               type: { const: "updateZoneScores" },
               zoneId: { type: "string", minLength: 1, maxLength: 128 },
-              fitnessScore: scoreJsonSchema,
-              affordabilityScore: scoreJsonSchema,
-              carFreeScore: scoreJsonSchema,
+              fitnessScore: nullableScoreJsonSchema,
+              affordabilityScore: nullableScoreJsonSchema,
+              carFreeScore: nullableScoreJsonSchema,
             },
           },
           {

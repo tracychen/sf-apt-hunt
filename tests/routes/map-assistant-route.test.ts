@@ -107,6 +107,57 @@ describe("POST /api/ai/map-assistant", () => {
         },
       },
     });
+    expect(JSON.stringify(payload)).toContain(
+      '"required":["type","zoneId","fitnessScore","affordabilityScore","carFreeScore"]',
+    );
+    expect(JSON.stringify(payload)).toContain(
+      '"fitnessScore":{"anyOf":[{"enum":[1,2,3,4,5]},{"type":"null"}]}',
+    );
+  });
+
+  it("normalizes null updateZoneScores fields from structured output", async () => {
+    mockOpenAiResponse({
+      output_text: JSON.stringify({
+        explanation: "I found one score update worth reviewing.",
+        intent: "prioritization",
+        proposal: {
+          summary: "Update affordability only.",
+          operations: [
+            {
+              type: "updateZoneScores",
+              zoneId: "lower-pac-heights",
+              fitnessScore: null,
+              affordabilityScore: 4,
+              carFreeScore: null,
+            },
+          ],
+          confidence: "medium",
+          requiresUserReview: true,
+        },
+        confidence: "medium",
+        caveats: [],
+      }),
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          message: "Update Lower Pac Heights affordability.",
+          mapState: seedMapState,
+        },
+        "Bearer sk-test-map",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.proposal.operations).toEqual([
+      {
+        type: "updateZoneScores",
+        zoneId: "lower-pac-heights",
+        affordabilityScore: 4,
+      },
+    ]);
   });
 
   it("rejects structured output with an unsupported intent", async () => {
