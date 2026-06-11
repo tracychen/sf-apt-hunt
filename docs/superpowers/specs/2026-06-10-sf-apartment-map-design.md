@@ -102,6 +102,16 @@ type SourceCitation = {
   sourceDomain: string;
 };
 
+type GeocodeAuthorization = {
+  nonce: string;
+  expiresAt: string;
+  maxAttempts: number;
+  allowedQueries: Array<{
+    candidateId: string;
+    geocodeQueryHash: string;
+  }>;
+};
+
 type ListingCandidate = {
   id: string;
   title: string;
@@ -124,8 +134,17 @@ type ListingCandidate = {
   shortTermSignal: boolean;
   furnishedSignal: boolean;
   fitScore: 1 | 2 | 3 | 4 | 5;
+  whyItFits: string;
   citations: SourceCitation[];
   caveats: string[];
+};
+
+type ListingSearchResponse = {
+  candidates: ListingCandidate[];
+  sourceSummary: string;
+  citations: SourceCitation[];
+  caveats: string[];
+  geocodeAuthorization: GeocodeAuthorization | null;
 };
 
 type MapPatchProposal = {
@@ -251,6 +270,8 @@ The response shape includes:
 
 Listing search returns source-linked advisory candidates. It does not claim availability beyond what the source page indicates.
 
+The route response uses the `ListingSearchResponse` contract. `geocodeAuthorization` is present only when one or more returned candidates include a geocodeable query.
+
 Candidate fields:
 
 - title
@@ -295,7 +316,10 @@ Rules:
 - Only geocode likely addresses or intersections from listing candidates.
 - Do not expose a general-purpose geocoding proxy.
 - Require a signed, short-lived nonce minted by `/api/ai/listing-search`.
-- Bind each nonce to the listing-search request, candidate IDs, and a capped number of geocode attempts.
+- Bind each nonce to the listing-search request, candidate IDs, canonical geocode-query hashes, and a capped number of geocode attempts.
+- Canonicalize each allowed query before signing by trimming whitespace, lowercasing, collapsing internal whitespace, and appending `san francisco ca` when the model omitted the city.
+- The nonce payload must sign the allowed `candidateId` plus canonical `geocodeQuery` hash pairs, or sign/encrypt the allowed candidate geocode payloads directly.
+- `/api/geocode/listing` must recompute the canonical query hash from the client request and reject any candidate/query pair not present in the nonce.
 - Enforce durable per-IP and per-session quotas in a serverless-safe shared store such as a Redis-compatible Vercel Marketplace integration.
 - Fail closed when the rate-limit store is unavailable in production.
 - Do not expose the Google key to the browser.
@@ -368,8 +392,10 @@ Runtime validation rejects:
 - oversized map state payloads
 - listing results without source URLs
 - listing results without citations for listing-specific claims
+- listing results without `whyItFits`
 - listing coordinates outside SF bounds
 - geocoding requests without a valid recent nonce
+- geocoding requests where the candidate ID and canonical geocode query hash do not match the signed nonce payload
 
 Route guardrails:
 
@@ -408,7 +434,7 @@ Tooling:
 
 Unit tests:
 
-- Runtime schema validation for map zones, corridors, target points, listing candidates, and proposals.
+- Runtime schema validation for map zones, corridors, target points, listing candidates, listing search responses, and proposals.
 - Valid `addTarget` applies.
 - Invalid coordinates reject.
 - Unknown zone ID rejects.
@@ -416,6 +442,7 @@ Unit tests:
 - `updateCorridorPriority` and `updateTargetPriority` validate IDs and priority values.
 - Google geocoding outside-SF response rejects.
 - Geocoding nonce validation rejects missing, expired, mismatched, and over-cap tokens.
+- Geocoding nonce validation rejects tampered geocode queries for otherwise-valid candidate IDs.
 - OpenAI-key redaction covers request, response, and error paths.
 
 Mocked route tests:
