@@ -320,26 +320,12 @@ function TargetMarker({
 }) {
   const [markerLayer, setMarkerLayer] = useState<L.Marker | null>(null);
 
-  function persistTargetPosition(layer: L.Marker) {
-    const nextState = applyTargetCoordinateEdit(mapState, targetId, fromLatLng(layer.getLatLng()));
-
-    if (nextState) {
-      onMapStateChange(nextState);
-    }
-  }
-
   usePersistentEditedLayer(markerLayer, mapState, onMapStateChange, (layer, currentMapState) =>
     applyTargetCoordinateEdit(currentMapState, targetId, fromLatLng(layer.getLatLng())),
   );
 
   return (
-    <Marker
-      ref={setMarkerLayer}
-      position={position}
-      title={title}
-      draggable
-      eventHandlers={{ dragend: (event) => persistTargetPosition(event.target as L.Marker) }}
-    >
+    <Marker ref={setMarkerLayer} position={position} title={title} draggable>
       {children}
     </Marker>
   );
