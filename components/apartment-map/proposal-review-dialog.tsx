@@ -39,7 +39,7 @@ export function ProposalReviewDialog({
     <section
       aria-labelledby="proposal-review-title"
       className="border border-primary bg-background p-3 text-sm"
-      role="dialog"
+      role="region"
     >
       <div className="flex items-start justify-between gap-3">
         <div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import type { ListingCandidate, MapPatchProposal, MapState } from "@/lib/domain/types";
 import { applyProposal } from "@/lib/map/proposals";
 import { seedMapState } from "@/lib/map/seed-data";
@@ -15,6 +15,50 @@ type MapPanelProps = {
   onMapStateChange: (state: MapState) => void;
   onSelectedZoneIdsChange: (ids: string[]) => void;
 };
+
+type MapHistoryState = {
+  current: MapState;
+  history: MapState[];
+};
+
+type MapHistoryAction =
+  | { type: "hydrate"; state: MapState }
+  | { type: "update"; state: MapState }
+  | { type: "undo" }
+  | { type: "reset" };
+
+function pushHistory(history: MapState[], current: MapState) {
+  return [...history.slice(-19), current];
+}
+
+function mapHistoryReducer(state: MapHistoryState, action: MapHistoryAction): MapHistoryState {
+  switch (action.type) {
+    case "hydrate":
+      return { ...state, current: action.state };
+    case "update":
+      return {
+        current: action.state,
+        history: pushHistory(state.history, state.current),
+      };
+    case "undo": {
+      const previous = state.history.at(-1);
+
+      if (!previous) {
+        return state;
+      }
+
+      return {
+        current: previous,
+        history: state.history.slice(0, -1),
+      };
+    }
+    case "reset":
+      return {
+        current: seedMapState,
+        history: pushHistory(state.history, state.current),
+      };
+  }
+}
 
 function priorityTone(priority: "high" | "medium" | "low") {
   if (priority === "high") {
@@ -149,32 +193,41 @@ function PlaceholderMapPanel(props: MapPanelProps) {
 }
 
 export function ApartmentMapApp() {
-  const [mapState, setMapState] = useState<MapState>(() => loadMapState() ?? seedMapState);
-  const [history, setHistory] = useState<MapState[]>([]);
+  const [mapHistory, dispatchMapHistory] = useReducer(mapHistoryReducer, {
+    current: seedMapState,
+    history: [],
+  });
   const [selectedZoneIds, setSelectedZoneIds] = useState<string[]>([]);
   const [proposal, setProposal] = useState<MapPatchProposal | null>(null);
   const [listings, setListings] = useState<ListingCandidate[]>([]);
+  const mapState = mapHistory.current;
+  const canUndo = mapHistory.history.length > 0;
+
+  useEffect(() => {
+    const storedMapState = loadMapState();
+
+    if (storedMapState) {
+      dispatchMapHistory({ type: "hydrate", state: storedMapState });
+    }
+  }, []);
 
   function updateMapState(nextState: MapState) {
-    setHistory((items) => [...items.slice(-19), mapState]);
-    setMapState(nextState);
+    dispatchMapHistory({ type: "update", state: nextState });
     saveMapState(nextState);
   }
 
   function undoLastEdit() {
-    const previous = history.at(-1);
+    const previous = mapHistory.history.at(-1);
     if (!previous) {
       return;
     }
 
-    setHistory((items) => items.slice(0, -1));
-    setMapState(previous);
+    dispatchMapHistory({ type: "undo" });
     saveMapState(previous);
   }
 
   function resetLocalMap() {
-    setHistory((items) => [...items.slice(-19), mapState]);
-    setMapState(seedMapState);
+    dispatchMapHistory({ type: "reset" });
     setSelectedZoneIds([]);
     setProposal(null);
     clearMapState();
@@ -216,6 +269,7 @@ export function ApartmentMapApp() {
         onRejectProposal={() => setProposal(null)}
         onUndo={undoLastEdit}
         onReset={resetLocalMap}
+        canUndo={canUndo}
       />
     </main>
   );

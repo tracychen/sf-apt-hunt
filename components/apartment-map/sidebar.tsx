@@ -18,6 +18,7 @@ export function Sidebar({
   onRejectProposal,
   onUndo,
   onReset,
+  canUndo,
 }: {
   mapState: MapState;
   selectedZoneIds: string[];
@@ -29,6 +30,7 @@ export function Sidebar({
   onRejectProposal: () => void;
   onUndo: () => void;
   onReset: () => void;
+  canUndo: boolean;
 }) {
   return (
     <aside className="flex min-h-[42vh] flex-col bg-sidebar text-sidebar-foreground lg:max-h-screen lg:min-h-screen lg:overflow-y-auto">
@@ -42,7 +44,7 @@ export function Sidebar({
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-sidebar-border p-3">
-        <Button variant="outline" onClick={onUndo}>
+        <Button disabled={!canUndo} variant="outline" onClick={onUndo}>
           Undo
         </Button>
         <Button variant="outline" onClick={onReset}>
