@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { POST } from "@/app/api/map/apply-proposal/route";
+import type { MapState, TargetPoint } from "@/lib/domain/types";
 import { seedMapState } from "@/lib/map/seed-data";
 
 function createRequest(body: unknown) {
@@ -15,6 +16,38 @@ function createRawRequest(body: string) {
     },
     body,
   });
+}
+
+function createStateAtTargetLimit(): MapState {
+  const fillerTargets: TargetPoint[] = Array.from(
+    { length: 200 - seedMapState.targets.length },
+    (_, index) => ({
+      id: `limit-target-${index}`,
+      name: `Limit Target ${index}`,
+      coordinates: [-122.421, 37.758],
+      priority: "low",
+      notes: [],
+    }),
+  );
+
+  return {
+    ...seedMapState,
+    targets: [...seedMapState.targets, ...fillerTargets],
+  };
+}
+
+function createStateWithZoneNotesAtLimit(zoneId: string): MapState {
+  return {
+    ...seedMapState,
+    zones: seedMapState.zones.map((zone) =>
+      zone.id === zoneId
+        ? {
+            ...zone,
+            notes: Array.from({ length: 50 }, (_, index) => `Limit note ${index}`),
+          }
+        : zone,
+    ),
+  };
 }
 
 describe("POST /api/map/apply-proposal", () => {
@@ -102,6 +135,67 @@ describe("POST /api/map/apply-proposal", () => {
     expect(body).toEqual({
       ok: false,
       error: "Proposal request is too large.",
+    });
+  });
+
+  it("rejects addTarget proposals that would exceed map limits", async () => {
+    const response = await POST(
+      createRequest({
+        mapState: createStateAtTargetLimit(),
+        proposal: {
+          summary: "Add one more target.",
+          operations: [
+            {
+              type: "addTarget",
+              target: {
+                id: "target-over-limit",
+                name: "Target Over Limit",
+                coordinates: [-122.421, 37.758],
+                priority: "low",
+                notes: [],
+              },
+            },
+          ],
+          confidence: "medium",
+          requiresUserReview: true,
+        },
+      }),
+    );
+
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      ok: false,
+      error: "Proposal exceeds map limits.",
+    });
+  });
+
+  it("rejects addNote proposals that would exceed map limits", async () => {
+    const response = await POST(
+      createRequest({
+        mapState: createStateWithZoneNotesAtLimit("lower-pac-heights"),
+        proposal: {
+          summary: "Add one more zone note.",
+          operations: [
+            {
+              type: "addNote",
+              entityId: "lower-pac-heights",
+              note: "One note too many.",
+            },
+          ],
+          confidence: "medium",
+          requiresUserReview: true,
+        },
+      }),
+    );
+
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      ok: false,
+      error: "Proposal exceeds map limits.",
     });
   });
 });

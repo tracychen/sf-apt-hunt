@@ -126,7 +126,7 @@ describe("domain schemas", () => {
     ).not.toThrow();
   });
 
-  it("validates generated geocode authorization tokens in listing search responses", () => {
+  it("validates generated geocode authorization tokens at the v1 query cap", () => {
     vi.setSystemTime(new Date("2026-06-11T19:00:00.000Z"));
 
     const candidates = Array.from({ length: 10 }, (_, index) => ({
@@ -140,6 +140,7 @@ describe("domain schemas", () => {
       ttlSeconds: 60,
     });
 
+    expect(geocodeAuthorization.allowedQueries).toHaveLength(10);
     expect(() =>
       listingSearchResponseSchema.parse({
         candidates: [
@@ -183,6 +184,31 @@ describe("domain schemas", () => {
         geocodeAuthorization,
       }),
     ).not.toThrow();
+  });
+
+  it("rejects generated geocode authorization tokens above the v1 query cap", () => {
+    vi.setSystemTime(new Date("2026-06-11T19:00:00.000Z"));
+
+    const geocodeAuthorization = createGeocodeAuthorization({
+      secret: "test-secret",
+      candidates: Array.from({ length: 11 }, (_, index) => ({
+        id: `listing-${index + 1}`,
+        geocodeQuery: `${100 + index} Market St`,
+      })),
+      maxAttempts: 11,
+      ttlSeconds: 60,
+    });
+
+    expect(geocodeAuthorization.allowedQueries).toHaveLength(11);
+    expect(() =>
+      listingSearchResponseSchema.parse({
+        candidates: [],
+        sourceSummary: "",
+        citations: [],
+        caveats: [],
+        geocodeAuthorization,
+      }),
+    ).toThrow();
   });
 
   it("requires listing prices to be positive integers", () => {

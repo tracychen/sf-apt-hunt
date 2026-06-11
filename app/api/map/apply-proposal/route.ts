@@ -67,7 +67,16 @@ export async function POST(request: Request) {
       return Response.json({ ok: false, error: result.error }, { status: 400 });
     }
 
-    return Response.json({ ok: true, state: result.state });
+    const parsedState = mapStateSchema.safeParse(result.state);
+
+    if (!parsedState.success) {
+      return Response.json(
+        { ok: false, error: "Proposal exceeds map limits." },
+        { status: 400 },
+      );
+    }
+
+    return Response.json({ ok: true, state: parsedState.data });
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return Response.json(
