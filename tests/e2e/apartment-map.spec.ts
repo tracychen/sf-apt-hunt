@@ -110,7 +110,12 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
         shortTerm: false,
         furnished: false,
       },
+      selectedContext: {
+        zones: [],
+        corridors: expect.any(Array),
+      },
     });
+    expect(body.selectedContext.corridors.length).toBeGreaterThan(0);
 
     await route.fulfill({
       status: 200,
@@ -198,8 +203,9 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
   await page.getByRole("button", { name: "Send" }).click();
 
   await expect(page.getByText("Sunny Fillmore Studio")).toBeVisible();
+  await expect(page.getByText("One listing matched.")).toBeVisible();
   await expect(page.getByText("Under budget near the target corridor.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Listing 1" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Listing 1" }).first()).toBeVisible();
   await expect(page.getByText("Exact pin")).toBeVisible();
   await expect(page.getByText("1 listing pin.")).toBeVisible();
   expect(geocodeSessionHeader).toBeTruthy();

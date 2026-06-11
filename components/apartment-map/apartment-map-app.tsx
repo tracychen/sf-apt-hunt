@@ -21,14 +21,25 @@ import {
   saveMapState,
   type GeocodeCacheEntry,
 } from "@/lib/storage/map-storage";
+import type { VisibleMapLayers } from "@/components/apartment-map/leaflet-map";
 import { Sidebar } from "@/components/apartment-map/sidebar";
 
 type MapPanelProps = {
   mapState: MapState;
   listings: ListingCandidate[];
   selectedZoneIds: string[];
+  visibleLayers: VisibleMapLayers;
   onMapStateChange: (state: MapState) => void;
   onSelectedZoneIdsChange: (ids: string[]) => void;
+};
+
+type ListingSearchMeta = Pick<ListingSearchResponse, "sourceSummary" | "citations" | "caveats"> | null;
+
+const defaultVisibleLayers: VisibleMapLayers = {
+  zones: true,
+  corridors: true,
+  targets: true,
+  listings: true,
 };
 
 const LeafletMap = dynamic<MapPanelProps>(
@@ -95,8 +106,10 @@ export function ApartmentMapApp() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [remembered, setRemembered] = useState(false);
   const [selectedZoneIds, setSelectedZoneIds] = useState<string[]>([]);
+  const [visibleLayers, setVisibleLayers] = useState<VisibleMapLayers>(defaultVisibleLayers);
   const [proposal, setProposal] = useState<MapPatchProposal | null>(null);
   const [listings, setListings] = useState<ListingCandidate[]>([]);
+  const [listingSearchMeta, setListingSearchMeta] = useState<ListingSearchMeta>(null);
   const geocodeRunIdRef = useRef(0);
   const mapState = mapHistory.current;
   const canUndo = mapHistory.history.length > 0;
@@ -139,6 +152,23 @@ export function ApartmentMapApp() {
     clearMapState();
   }
 
+  function resetSelectedZones() {
+    if (selectedZoneIds.length === 0) {
+      return;
+    }
+
+    const selectedZoneSet = new Set(selectedZoneIds);
+    const seedZonesById = new Map(seedMapState.zones.map((zone) => [zone.id, zone]));
+    const nextState = {
+      ...mapState,
+      zones: mapState.zones.map((zone) =>
+        selectedZoneSet.has(zone.id) ? seedZonesById.get(zone.id) ?? zone : zone,
+      ),
+    };
+
+    updateMapState(nextState);
+  }
+
   function updateApiKey(nextApiKey: string | null, nextRemembered: boolean) {
     setApiKey(nextApiKey);
     setRemembered(nextRemembered);
@@ -152,6 +182,11 @@ export function ApartmentMapApp() {
   function handleListingSearchResponse(response: ListingSearchResponse) {
     const nextRunId = geocodeRunIdRef.current + 1;
     geocodeRunIdRef.current = nextRunId;
+    setListingSearchMeta({
+      sourceSummary: response.sourceSummary,
+      citations: response.citations,
+      caveats: response.caveats,
+    });
     setListings(response.candidates);
 
     const cachedResult = applyCachedGeocodeEntries(response.candidates);
@@ -197,6 +232,7 @@ export function ApartmentMapApp() {
           mapState={mapState}
           listings={listings}
           selectedZoneIds={selectedZoneIds}
+          visibleLayers={visibleLayers}
           onMapStateChange={updateMapState}
           onSelectedZoneIdsChange={setSelectedZoneIds}
         />
@@ -205,17 +241,22 @@ export function ApartmentMapApp() {
         apiKey={apiKey}
         remembered={remembered}
         mapState={mapState}
+        visibleLayers={visibleLayers}
         selectedZoneIds={selectedZoneIds}
         listings={listings}
+        listingSearchMeta={listingSearchMeta}
         proposal={proposal}
         onApiKeyChange={updateApiKey}
+        onVisibleLayersChange={setVisibleLayers}
         onListingSearchResponse={handleListingSearchResponse}
         onProposalChange={setProposal}
         onApplyProposal={applyReviewedProposal}
         onRejectProposal={() => setProposal(null)}
         onUndo={undoLastEdit}
         onReset={resetLocalMap}
+        onResetSelectedShapes={resetSelectedZones}
         canUndo={canUndo}
+        canResetSelectedShapes={selectedZoneIds.length > 0}
       />
     </main>
   );

@@ -29,8 +29,16 @@ type LeafletMapProps = {
   mapState: MapState;
   listings: ListingCandidate[];
   selectedZoneIds: string[];
+  visibleLayers: VisibleMapLayers;
   onMapStateChange: (state: MapState) => void;
   onSelectedZoneIdsChange: (ids: string[]) => void;
+};
+
+export type VisibleMapLayers = {
+  zones: boolean;
+  corridors: boolean;
+  targets: boolean;
+  listings: boolean;
 };
 
 type LeafletDefaultIconPrototype = L.Icon.Default & {
@@ -361,6 +369,7 @@ export function LeafletMap({
   mapState,
   listings,
   selectedZoneIds,
+  visibleLayers,
   onMapStateChange,
   onSelectedZoneIdsChange,
 }: LeafletMapProps) {
@@ -417,7 +426,7 @@ export function LeafletMap({
         <ZoomControl position="bottomright" />
         <GeomanControls />
 
-        {mapState.zones.map((zone) => {
+        {visibleLayers.zones ? mapState.zones.map((zone) => {
           const selected = selectedZoneSet.has(zone.id);
           const positions = zone.geometry.coordinates.map((ring) => ring.map(toLatLng));
 
@@ -444,9 +453,9 @@ export function LeafletMap({
               </Popup>
             </ZonePolygon>
           );
-        })}
+        }) : null}
 
-        {mapState.corridors.map((corridor) => (
+        {visibleLayers.corridors ? mapState.corridors.map((corridor) => (
           <CorridorPolyline
             key={corridor.id}
             corridorId={corridor.id}
@@ -464,9 +473,9 @@ export function LeafletMap({
               </div>
             </Popup>
           </CorridorPolyline>
-        ))}
+        )) : null}
 
-        {mapState.targets.map((target) => (
+        {visibleLayers.targets ? mapState.targets.map((target) => (
           <TargetMarker
             key={target.id}
             mapState={mapState}
@@ -483,9 +492,9 @@ export function LeafletMap({
               </div>
             </Popup>
           </TargetMarker>
-        ))}
+        )) : null}
 
-        {listingPins.map((listing) => (
+        {visibleLayers.listings ? listingPins.map((listing) => (
           <ListingMarker key={listing.id} position={toLatLng(listing.coordinates)} title={listing.title}>
             <Popup>
               <div className="space-y-1 text-sm">
@@ -496,7 +505,7 @@ export function LeafletMap({
               </div>
             </Popup>
           </ListingMarker>
-        ))}
+        )) : null}
       </MapContainer>
 
       <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[450] max-w-md border border-border bg-background/95 p-3 text-xs text-foreground shadow-sm backdrop-blur sm:inset-x-auto sm:left-3">

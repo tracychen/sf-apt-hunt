@@ -5,7 +5,9 @@ import { useState } from "react";
 import type { MapPatchProposal, MapState } from "@/lib/domain/types";
 import { Button } from "@/components/ui/button";
 
-function describeOperation(operation: MapPatchProposal["operations"][number]) {
+type ProposalOperation = MapPatchProposal["operations"][number];
+
+function describeOperation(operation: ProposalOperation) {
   switch (operation.type) {
     case "addTarget":
       return `Add target: ${operation.target.name}`;
@@ -21,6 +23,51 @@ function describeOperation(operation: MapPatchProposal["operations"][number]) {
       return `Replace zone geometry: ${operation.zoneId}`;
     case "addNote":
       return `Add note to ${operation.entityId}`;
+  }
+}
+
+function operationPreview(operation: ProposalOperation, mapState: MapState) {
+  switch (operation.type) {
+    case "updateCorridorPriority": {
+      const corridor = mapState.corridors.find((item) => item.id === operation.corridorId);
+      return corridor
+        ? `Before: ${corridor.priority}; after: ${operation.priority}.`
+        : `After: ${operation.priority}.`;
+    }
+    case "updateTargetPriority": {
+      const target = mapState.targets.find((item) => item.id === operation.targetId);
+      return target
+        ? `Before: ${target.priority}; after: ${operation.priority}.`
+        : `After: ${operation.priority}.`;
+    }
+    case "updateZoneScores": {
+      const zone = mapState.zones.find((item) => item.id === operation.zoneId);
+      if (!zone) {
+        return "Score preview unavailable for unknown zone.";
+      }
+
+      return [
+        operation.fitnessScore ? `fit ${zone.fitnessScore}->${operation.fitnessScore}` : null,
+        operation.affordabilityScore
+          ? `rent ${zone.affordabilityScore}->${operation.affordabilityScore}`
+          : null,
+        operation.carFreeScore ? `transit ${zone.carFreeScore}->${operation.carFreeScore}` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+    }
+    case "replaceZoneGeometry": {
+      const zone = mapState.zones.find((item) => item.id === operation.zoneId);
+      const beforePoints = zone?.geometry.coordinates[0]?.length ?? 0;
+      const afterPoints = operation.geometry.coordinates[0]?.length ?? 0;
+      return `Geometry preview: ${beforePoints} current points -> ${afterPoints} proposed points.`;
+    }
+    case "addTarget":
+      return `Coordinates: ${operation.target.coordinates[1].toFixed(5)}, ${operation.target.coordinates[0].toFixed(5)}.`;
+    case "addCorridor":
+      return `Geometry preview: ${operation.corridor.geometry.coordinates.length} corridor points.`;
+    case "addNote":
+      return operation.note;
   }
 }
 
@@ -110,7 +157,10 @@ export function ProposalReviewDialog({
 
       <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
         {proposal.operations.map((operation, index) => (
-          <li key={`${operation.type}-${index}`}>{describeOperation(operation)}</li>
+          <li key={`${operation.type}-${index}`}>
+            <span className="font-medium text-foreground">{describeOperation(operation)}</span>
+            <span className="mt-0.5 block">{operationPreview(operation, mapState)}</span>
+          </li>
         ))}
       </ul>
 

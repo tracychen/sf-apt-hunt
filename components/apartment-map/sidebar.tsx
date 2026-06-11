@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
+
 import type {
   ListingCandidate,
   ListingSearchResponse,
   MapPatchProposal,
   MapState,
 } from "@/lib/domain/types";
+import type { VisibleMapLayers } from "@/components/apartment-map/leaflet-map";
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { AssistantPanel } from "@/components/apartment-map/assistant-panel";
 import { ListingResults } from "@/components/apartment-map/listing-results";
@@ -16,33 +19,61 @@ export function Sidebar({
   apiKey,
   remembered,
   mapState,
+  visibleLayers,
   selectedZoneIds,
   listings,
+  listingSearchMeta,
   proposal,
   onApiKeyChange,
+  onVisibleLayersChange,
   onListingSearchResponse,
   onProposalChange,
   onApplyProposal,
   onRejectProposal,
   onUndo,
   onReset,
+  onResetSelectedShapes,
   canUndo,
+  canResetSelectedShapes,
 }: {
   apiKey: string | null;
   remembered: boolean;
   mapState: MapState;
+  visibleLayers: VisibleMapLayers;
   selectedZoneIds: string[];
   listings: ListingCandidate[];
+  listingSearchMeta: Pick<ListingSearchResponse, "sourceSummary" | "citations" | "caveats"> | null;
   proposal: MapPatchProposal | null;
   onApiKeyChange: (key: string | null, remembered: boolean) => void;
+  onVisibleLayersChange: (layers: VisibleMapLayers) => void;
   onListingSearchResponse: (response: ListingSearchResponse) => void;
   onProposalChange: (proposal: MapPatchProposal | null) => void;
   onApplyProposal: (state: MapState) => void;
   onRejectProposal: () => void;
   onUndo: () => void;
   onReset: () => void;
+  onResetSelectedShapes: () => void;
   canUndo: boolean;
+  canResetSelectedShapes: boolean;
 }) {
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+
+  function toggleLayer(layer: keyof VisibleMapLayers) {
+    onVisibleLayersChange({
+      ...visibleLayers,
+      [layer]: !visibleLayers[layer],
+    });
+  }
+
+  async function copyMapJson() {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(mapState, null, 2));
+      setExportStatus("Copied local map JSON.");
+    } catch {
+      setExportStatus("Could not copy local map JSON.");
+    }
+  }
+
   return (
     <aside className="flex min-h-[42vh] flex-col bg-sidebar text-sidebar-foreground lg:max-h-screen lg:min-h-screen lg:overflow-y-auto">
       <div className="border-b border-sidebar-border p-4">
@@ -58,12 +89,37 @@ export function Sidebar({
         <Button disabled={!canUndo} variant="outline" onClick={onUndo}>
           Undo
         </Button>
+        <Button disabled={!canResetSelectedShapes} variant="outline" onClick={onResetSelectedShapes}>
+          Reset selected zones
+        </Button>
         <Button variant="outline" onClick={onReset}>
           Reset local map
+        </Button>
+        <Button variant="outline" onClick={copyMapJson}>
+          Copy map JSON
         </Button>
       </div>
 
       <div className="space-y-4 p-4">
+        <section className="border border-sidebar-border bg-background p-3 text-sm">
+          <h2 className="font-medium">Map layers</h2>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+            {(["zones", "corridors", "targets", "listings"] as const).map((layer) => (
+              <label key={layer} className="flex items-center gap-2">
+                <input
+                  className="size-3.5"
+                  type="checkbox"
+                  checked={visibleLayers[layer]}
+                  onChange={() => toggleLayer(layer)}
+                />
+                {layer[0].toUpperCase()}
+                {layer.slice(1)}
+              </label>
+            ))}
+          </div>
+          {exportStatus ? <p className="mt-3 text-xs text-muted-foreground">{exportStatus}</p> : null}
+        </section>
+
         <ApiKeyDialog
           apiKey={apiKey}
           remembered={remembered}
@@ -76,7 +132,12 @@ export function Sidebar({
           onProposalChange={onProposalChange}
           onListingSearchResponse={onListingSearchResponse}
         />
-        <ListingResults listings={listings} />
+        <ListingResults
+          listings={listings}
+          sourceSummary={listingSearchMeta?.sourceSummary ?? null}
+          sourceCitations={listingSearchMeta?.citations ?? []}
+          sourceCaveats={listingSearchMeta?.caveats ?? []}
+        />
         <ProposalReviewDialog
           mapState={mapState}
           proposal={proposal}

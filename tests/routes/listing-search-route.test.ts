@@ -109,9 +109,19 @@ describe("POST /api/ai/listing-search", () => {
     const fetchMock = mockOpenAiResponse({ output_text: JSON.stringify(structuredOutput) });
 
     const response = await POST(
-      createRequest({ query: "Find furnished studios near Fillmore." }, "Bearer sk-test-listing"),
+      createRequest(
+        {
+          query: "Find furnished studios near Fillmore.",
+          selectedContext: {
+            zones: [{ id: "lower-pac-heights", name: "Lower Pac Heights" }],
+            corridors: [{ id: "fillmore", name: "Fillmore", priority: "high" }],
+          },
+        },
+        "Bearer sk-test-listing",
+      ),
     );
     const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const userMessage = JSON.parse(payload.input[1].content);
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
@@ -125,6 +135,10 @@ describe("POST /api/ai/listing-search", () => {
           strict: true,
         },
       },
+    });
+    expect(userMessage.selectedContext).toEqual({
+      zones: [{ id: "lower-pac-heights", name: "Lower Pac Heights" }],
+      corridors: [{ id: "fillmore", name: "Fillmore", priority: "high" }],
     });
   });
 
@@ -158,5 +172,37 @@ describe("POST /api/ai/listing-search", () => {
     expect(body.geocodeAuthorization.allowedQueries).toHaveLength(10);
     expect(body.geocodeAuthorization.allowedQueries.map((query: { candidateId: string }) => query.candidateId))
       .toEqual(Array.from({ length: 10 }, (_, index) => `candidate-${index + 1}`));
+  });
+
+  it("normalizes model-supplied coordinates so only guarded geocoding can create pins", async () => {
+    vi.stubEnv("GEOCODE_NONCE_SECRET", "test-secret");
+    const candidate = {
+      ...createCandidate(1, "Fillmore and California"),
+      coordinates: [-122.433, 37.789],
+      geocodeStatus: "geocoded_exact",
+      markerPrecision: "exact",
+    };
+    mockOpenAiResponse({
+      output_text: JSON.stringify({
+        candidates: [candidate],
+        sourceSummary: "One source matched the search.",
+        citations: [],
+        caveats: [],
+        geocodeAuthorization: null,
+      }),
+    });
+
+    const response = await POST(
+      createRequest({ query: "Find studios near Fillmore." }, "Bearer sk-test-listing"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.candidates[0]).toMatchObject({
+      coordinates: null,
+      geocodeStatus: "not_attempted",
+      markerPrecision: "none",
+    });
+    expect(body.geocodeAuthorization.allowedQueries).toHaveLength(1);
   });
 });

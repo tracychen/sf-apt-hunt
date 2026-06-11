@@ -13,6 +13,30 @@ const listingSearchRequestSchema = z
   .object({
     query: z.string().min(1).max(4_000),
     filters: z.record(z.string(), z.unknown()).optional(),
+    selectedContext: z
+      .object({
+        zones: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(128),
+              name: z.string().min(1).max(160),
+            }),
+          )
+          .max(100)
+          .optional(),
+        corridors: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(128),
+              name: z.string().min(1).max(160),
+              priority: z.enum(["high", "medium", "low"]),
+            }),
+          )
+          .max(100)
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -68,27 +92,9 @@ const listingSearchJsonSchema = {
           locationText: { anyOf: [{ type: "string", maxLength: 2000 }, { type: "null" }] },
           geocodeQuery: { anyOf: [{ type: "string", maxLength: 2000 }, { type: "null" }] },
           locationConfidence: { enum: ["none", "low", "medium", "high"] },
-          coordinates: {
-            anyOf: [
-              {
-                type: "array",
-                minItems: 2,
-                maxItems: 2,
-                items: { type: "number" },
-              },
-              { type: "null" },
-            ],
-          },
-          geocodeStatus: {
-            enum: [
-              "not_attempted",
-              "geocoded_exact",
-              "geocoded_approximate",
-              "failed",
-              "outside_sf",
-            ],
-          },
-          markerPrecision: { enum: ["none", "exact", "approximate"] },
+          coordinates: { type: "null" },
+          geocodeStatus: { enum: ["not_attempted"] },
+          markerPrecision: { enum: ["none"] },
           priceMonthly: { anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }] },
           beds: { enum: ["studio", "1br", "unknown"] },
           shortTermSignal: { type: "boolean" },
@@ -138,6 +144,7 @@ export async function POST(request: Request) {
             content: JSON.stringify({
               query: body.query,
               filters: body.filters ?? {},
+              selectedContext: body.selectedContext ?? { zones: [], corridors: [] },
             }),
           },
         ],
@@ -173,7 +180,9 @@ export async function POST(request: Request) {
     }
 
     const parsedOutput = JSON.parse(outputText);
-    const parsedResponse = listingSearchResponseSchema.parse(parsedOutput);
+    const parsedResponse = sanitizeListingSearchResponse(
+      listingSearchResponseSchema.parse(parsedOutput),
+    );
 
     return Response.json({
       ...parsedResponse,
@@ -189,6 +198,20 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+}
+
+function sanitizeListingSearchResponse(
+  response: z.infer<typeof listingSearchResponseSchema>,
+) {
+  return {
+    ...response,
+    candidates: response.candidates.map((candidate) => ({
+      ...candidate,
+      coordinates: null,
+      geocodeStatus: "not_attempted" as const,
+      markerPrecision: "none" as const,
+    })),
+  };
 }
 
 function mintGeocodeAuthorization(

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ListingCandidate } from "@/lib/domain/types";
+import type { ListingCandidate, SourceCitation } from "@/lib/domain/types";
 
 function formatPrice(priceMonthly: number | null) {
   if (priceMonthly === null) {
@@ -42,7 +42,17 @@ function formatPinStatus(listing: ListingCandidate) {
   return "Pin pending";
 }
 
-export function ListingResults({ listings }: { listings: ListingCandidate[] }) {
+export function ListingResults({
+  listings,
+  sourceCaveats,
+  sourceCitations,
+  sourceSummary,
+}: {
+  listings: ListingCandidate[];
+  sourceSummary: string | null;
+  sourceCitations: SourceCitation[];
+  sourceCaveats: string[];
+}) {
   return (
     <section className="space-y-3 text-sm">
       <div className="flex items-center justify-between gap-3">
@@ -50,9 +60,40 @@ export function ListingResults({ listings }: { listings: ListingCandidate[] }) {
         <span className="text-xs text-muted-foreground">{listings.length} candidates</span>
       </div>
 
+      {sourceSummary ? (
+        <div className="border border-sidebar-border bg-background p-3 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">Source summary</p>
+          <p className="mt-1 leading-5">{sourceSummary}</p>
+
+          {sourceCaveats.length > 0 ? (
+            <ul className="mt-2 space-y-1 leading-4">
+              {sourceCaveats.map((caveat, index) => (
+                <li key={`source-caveat-${index}`}>Caveat: {caveat}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          {sourceCitations.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {sourceCitations.map((citation, index) => (
+                <a
+                  key={`source-citation-${index}`}
+                  className="text-primary underline underline-offset-4 hover:text-primary/80"
+                  href={citation.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {citation.title ?? citation.sourceDomain}
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {listings.length === 0 ? (
         <p className="border border-dashed border-sidebar-border bg-background p-3 text-xs text-muted-foreground">
-          No listing candidates yet.
+          {sourceSummary ? "No listing candidates returned." : "No listing candidates yet."}
         </p>
       ) : (
         <div className="space-y-2">

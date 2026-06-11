@@ -52,14 +52,30 @@ export async function POST(request: Request) {
         );
       }
     } else {
-      const rateLimit = await checkFixedWindowRateLimit({
-        redis,
-        key: getRateLimitKey(request),
-        limit: GEOCODE_RATE_LIMIT,
-        windowSeconds: GEOCODE_RATE_LIMIT_WINDOW_SECONDS,
-      });
+      const rateLimitChecks = [
+        {
+          key: getIpRateLimitKey(request),
+          limit: GEOCODE_RATE_LIMIT,
+          windowSeconds: GEOCODE_RATE_LIMIT_WINDOW_SECONDS,
+        },
+        {
+          key: getSessionRateLimitKey(request),
+          limit: GEOCODE_RATE_LIMIT,
+          windowSeconds: GEOCODE_RATE_LIMIT_WINDOW_SECONDS,
+        },
+        {
+          key: getNonceAttemptLimitKey(body.nonce),
+          limit: verification.payload.maxAttempts,
+          windowSeconds: getNonceWindowSeconds(verification.payload.expiresAt),
+        },
+      ];
+      const rateLimitResults = await Promise.all(
+        rateLimitChecks.map((rateLimitCheck) =>
+          checkFixedWindowRateLimit({ redis, ...rateLimitCheck }),
+        ),
+      );
 
-      if (!rateLimit.ok) {
+      if (rateLimitResults.some((rateLimit) => !rateLimit.ok)) {
         return Response.json(
           { ok: false, error: "Geocoding rate limit exceeded." },
           { status: 429 },
@@ -92,17 +108,34 @@ export async function POST(request: Request) {
   }
 }
 
-function getRateLimitKey(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for") ?? "unknown-ip";
-  const session = request.headers.get("x-sf-apt-session") ?? "unknown-session";
-  const ip = forwardedFor.split(",")[0]?.trim() || "unknown-ip";
-  const identityHash = createHash("sha256")
-    .update(ip)
-    .update("\0")
-    .update(session)
-    .digest("hex");
+function getIpRateLimitKey(request: Request) {
+  return `geocode:listing:ip:${hashValue(getClientIp(request))}`;
+}
 
-  return `geocode:listing:${identityHash}`;
+function getSessionRateLimitKey(request: Request) {
+  return `geocode:listing:session:${hashValue(getClientSession(request))}`;
+}
+
+function getNonceAttemptLimitKey(nonce: string) {
+  return `geocode:listing:nonce:${hashValue(nonce)}`;
+}
+
+function getClientIp(request: Request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") ?? "unknown-ip";
+  return forwardedFor.split(",")[0]?.trim() || "unknown-ip";
+}
+
+function getClientSession(request: Request) {
+  return request.headers.get("x-sf-apt-session")?.trim() || "unknown-session";
+}
+
+function getNonceWindowSeconds(expiresAt: string) {
+  const expiresInMs = Date.parse(expiresAt) - Date.now();
+  return Math.max(1, Math.ceil(expiresInMs / 1000));
+}
+
+function hashValue(value: string) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function getErrorDetails(error: unknown) {

@@ -78,6 +78,7 @@ export function AssistantPanel(props: {
               ? {
                   query: trimmedMessage,
                   filters: activeFilters,
+                  selectedContext: buildSelectedContext(mapState, selectedZoneIds),
                 }
               : {
                   message: trimmedMessage,
@@ -227,6 +228,24 @@ export function AssistantPanel(props: {
       </div>
     </form>
   );
+}
+
+function buildSelectedContext(mapState: MapState, selectedZoneIds: string[]) {
+  const selectedZoneSet = new Set(selectedZoneIds);
+
+  return {
+    zones: mapState.zones
+      .filter((zone) => selectedZoneSet.has(zone.id))
+      .map((zone) => ({
+        id: zone.id,
+        name: zone.name,
+      })),
+    corridors: mapState.corridors.map((corridor) => ({
+      id: corridor.id,
+      name: corridor.name,
+      priority: corridor.priority,
+    })),
+  };
 }
 
 function parseBudget(value: string) {
