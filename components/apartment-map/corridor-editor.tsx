@@ -15,12 +15,15 @@ type CorridorEditorProps = {
 };
 
 const corridorTags = ["fitness", "rent", "transit", "safety", "short-term"] as const;
+const MAX_CORRIDOR_NAME_LENGTH = 160;
+const MAX_CORRIDOR_TEXT_LENGTH = 2_000;
+const MAX_CORRIDOR_NOTES = 50;
 
 export function CorridorEditor({ mapState, corridor, onMapStateChange }: CorridorEditorProps) {
   const notesValue = corridor.notes.join("\n");
 
   function commitName(input: HTMLInputElement) {
-    const value = readRequiredText(input, corridor.name);
+    const value = readRequiredText(input, corridor.name, MAX_CORRIDOR_NAME_LENGTH);
     if (!value) {
       return;
     }
@@ -132,8 +135,8 @@ function closeOpenCorridorPopup() {
     .forEach((popup) => popup.remove());
 }
 
-function readRequiredText(input: HTMLInputElement, currentValue: string) {
-  const value = input.value.trim();
+function readRequiredText(input: HTMLInputElement, currentValue: string, maxLength: number) {
+  const value = clampText(input.value.trim(), maxLength);
 
   if (!value) {
     input.value = currentValue;
@@ -147,9 +150,14 @@ function readRequiredText(input: HTMLInputElement, currentValue: string) {
 function readNotes(input: HTMLTextAreaElement) {
   const notes = input.value
     .split("\n")
-    .map((note) => note.trim())
-    .filter(Boolean);
+    .map((note) => clampText(note.trim(), MAX_CORRIDOR_TEXT_LENGTH))
+    .filter(Boolean)
+    .slice(0, MAX_CORRIDOR_NOTES);
 
   input.value = notes.join("\n");
   return notes;
+}
+
+function clampText(value: string, maxLength: number) {
+  return value.length > maxLength ? value.slice(0, maxLength) : value;
 }

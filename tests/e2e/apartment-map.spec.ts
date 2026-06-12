@@ -9,6 +9,9 @@ const mapStateStorageKey = "sf-apt-hunt:map-state:v1";
 const maxTargetNameLength = 160;
 const maxTargetTextLength = 2_000;
 const maxTargetNotes = 50;
+const maxCorridorNameLength = 160;
+const maxCorridorTextLength = 2_000;
+const maxCorridorNotes = 50;
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/{tile.openstreetmap.org,*.tile.openstreetmap.org}/**", async (route) => {
@@ -108,6 +111,24 @@ test("target field edits are undoable and resettable", async ({ page }) => {
   await expect(
     page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
   ).toBeVisible();
+});
+
+test("corridor field edits are undoable and resettable", async ({ page }) => {
+  await page.goto("/");
+
+  await clickPolkCorridor(page);
+  await page.getByLabel("Corridor name").fill("Polk Gulch spine");
+  await page.getByLabel("Corridor name").blur();
+  await expect(page.getByText("Active shape: Polk Gulch spine")).toBeVisible();
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByText("Active shape: Polk Street")).toBeVisible();
+
+  await page.getByLabel("Corridor name").fill("Polk Gulch spine");
+  await page.getByLabel("Corridor name").blur();
+  await expect(page.getByLabel("Corridor name")).toHaveValue("Polk Gulch spine");
+  await page.getByRole("button", { name: "Reset selected shape" }).click();
+  await expect(page.getByLabel("Corridor name")).toHaveValue("Polk Street");
 });
 
 test("resetting a custom target removes the stale selected target", async ({ page }) => {
@@ -217,6 +238,32 @@ test("clamps selected target planning text fields to persisted schema limits", a
   await expect(page.getByLabel("Target purpose")).toHaveValue(clampedPurpose);
   await expect(page.getByLabel("Target location label")).toHaveValue(clampedName);
   await expect(page.getByLabel("Target notes")).toHaveValue(clampedNotes.join("\n"));
+});
+
+test("clamps selected corridor text fields to persisted schema limits", async ({ page }) => {
+  const overlongName = `corridor-${"n".repeat(maxCorridorNameLength + 20)}`;
+  const overlongNotes = [
+    `note-${"x".repeat(maxCorridorTextLength + 20)}`,
+    ...Array.from({ length: maxCorridorNotes + 5 }, (_, index) => `corridor-note-${index}`),
+  ];
+  const clampedName = overlongName.slice(0, maxCorridorNameLength);
+  const clampedNotes = overlongNotes
+    .slice(0, maxCorridorNotes)
+    .map((note) => note.slice(0, maxCorridorTextLength));
+
+  await page.goto("/");
+
+  await clickPolkCorridor(page);
+  await page.getByLabel("Corridor name").fill(overlongName);
+  await page.getByLabel("Corridor name").blur();
+  await page.getByLabel("Corridor notes").fill(overlongNotes.join("\n"));
+  await page.getByLabel("Corridor notes").blur();
+
+  await page.reload();
+
+  await clickPolkCorridor(page);
+  await expect(page.getByLabel("Corridor name")).toHaveValue(clampedName);
+  await expect(page.getByLabel("Corridor notes")).toHaveValue(clampedNotes.join("\n"));
 });
 
 test("fits the apartment map on a mobile viewport without horizontal overflow", async ({ page }) => {
