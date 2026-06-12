@@ -6,7 +6,9 @@ Make corridors editable from the sidebar so they behave like target planning anc
 
 ## Current State
 
-Corridors already store editable planning metadata in `TargetCorridor`: `name`, `priority`, `tags`, and `notes`. Users can edit corridor geometry on the map line, and the assistant can propose `updateCorridorPriority`, but there is no direct sidebar editor for corridor metadata. Listing search already receives selected corridor context, so clearer corridor metadata can matter once search/scoring uses it more deeply.
+Corridors already store editable planning metadata in `TargetCorridor`: `name`, `priority`, `tags`, and `notes`. Users can edit corridor geometry on the map line, and the assistant can propose `updateCorridorPriority`, but there is no direct sidebar editor for corridor metadata.
+
+Listing search currently receives corridor `id`, `name`, and `priority` only. Corridor `tags` and `notes` remain local map metadata and map-assistant context for this feature; adding them to listing-search context is out of scope.
 
 ## Design
 
@@ -26,7 +28,7 @@ Add a corridor metadata edit helper beside the existing map-state edit helpers. 
 
 `CorridorEditor` commits edits through the same `onMapStateChange` path used by target edits and geometry edits. This keeps local storage, history, undo, and reset behavior consistent.
 
-Reset selected shape continues to restore the full seed corridor when one exists, including geometry and metadata. If a custom corridor is selected and reset, it is removed using the existing reset behavior.
+Reset selected shape continues to restore the full seed corridor when one exists, including geometry and metadata. If a custom corridor is selected and reset, the corridor is removed and `selectedEntity` is cleared so the sidebar does not keep pointing at a deleted corridor.
 
 ## Proposal Scope
 
@@ -39,6 +41,7 @@ Unit tests should cover:
 - Updating corridor metadata by id.
 - Returning `null` for unknown corridor ids.
 - Returning `null` when a patch does not change any fields.
+- Preserving the existing field limits for corridor names, notes, and note count.
 
 End-to-end tests should cover:
 
@@ -46,6 +49,8 @@ End-to-end tests should cover:
 - Editing name, priority, tags, and notes persists through reload.
 - Corridor field edits are undoable.
 - Reset selected shape restores seed corridor metadata.
+- Resetting a custom corridor removes the stale selected corridor from the sidebar.
+- Overlong corridor name and notes input is clamped before persistence.
 
 ## Out of Scope
 
