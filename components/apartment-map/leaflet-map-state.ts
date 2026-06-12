@@ -1,4 +1,4 @@
-import type { Coordinate, MapState } from "@/lib/domain/types";
+import type { Coordinate, MapState, TargetCorridor } from "@/lib/domain/types";
 import { seedMapState } from "@/lib/map/seed-data";
 import { isCoordinateInSfBounds } from "@/lib/map/sf-bounds";
 import {
@@ -88,6 +88,41 @@ export function applyCorridorGeometryEdit(
   };
 }
 
+export type CorridorMetadataPatch = Partial<
+  Pick<TargetCorridor, "name" | "priority" | "tags" | "notes">
+>;
+
+export function applyCorridorMetadataEdit(
+  mapState: MapState,
+  corridorId: string,
+  patch: CorridorMetadataPatch,
+): PersistResult {
+  const corridor = mapState.corridors.find((item) => item.id === corridorId);
+
+  if (!corridor) {
+    return null;
+  }
+
+  const nextCorridor = { ...corridor };
+
+  for (const [field, value] of Object.entries(patch)) {
+    if (value !== undefined) {
+      Object.assign(nextCorridor, { [field]: value });
+    }
+  }
+
+  if (corridorsEqual(corridor, nextCorridor)) {
+    return null;
+  }
+
+  return {
+    ...mapState,
+    corridors: mapState.corridors.map((item) =>
+      item.id === corridorId ? nextCorridor : item,
+    ),
+  };
+}
+
 export function applyTargetCoordinateEdit(
   mapState: MapState,
   targetId: string,
@@ -131,5 +166,16 @@ function shouldUseCustomLocationLabel(
     seedTarget &&
       target.name === seedTarget.name &&
       !coordinateEqual(seedTarget.coordinates, coordinates),
+  );
+}
+
+function corridorsEqual(left: TargetCorridor, right: TargetCorridor) {
+  return (
+    left.name === right.name &&
+    left.priority === right.priority &&
+    left.tags.length === right.tags.length &&
+    left.tags.every((tag, index) => tag === right.tags[index]) &&
+    left.notes.length === right.notes.length &&
+    left.notes.every((note, index) => note === right.notes[index])
   );
 }

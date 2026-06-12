@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { seedMapState } from "@/lib/map/seed-data";
 import {
   applyCorridorGeometryEdit,
+  applyCorridorMetadataEdit,
   applyTargetCoordinateEdit,
   applyTargetPlanningFieldEdit,
   applyZoneGeometryEdit,
@@ -91,6 +92,30 @@ describe("leaflet map state edits", () => {
     });
   });
 
+  it("updates corridor metadata fields", () => {
+    const nextState = applyCorridorMetadataEdit(seedMapState, "polk", {
+      name: "Polk Gulch spine",
+      priority: "high",
+      tags: ["fitness", "transit", "safety"],
+      notes: ["Prioritize north-side services."],
+    });
+
+    expect(nextState?.corridors.find((corridor) => corridor.id === "polk")).toMatchObject({
+      name: "Polk Gulch spine",
+      priority: "high",
+      tags: ["fitness", "transit", "safety"],
+      notes: ["Prioritize north-side services."],
+    });
+  });
+
+  it("returns null for unknown corridor metadata edits", () => {
+    expect(
+      applyCorridorMetadataEdit(seedMapState, "missing-corridor", {
+        priority: "high",
+      }),
+    ).toBeNull();
+  });
+
   it("returns null when edited geometry does not change", () => {
     const zone = seedMapState.zones.find((item) => item.id === "mission-dolores-valencia");
     const corridor = seedMapState.corridors.find((item) => item.id === "valencia");
@@ -106,6 +131,12 @@ describe("leaflet map state edits", () => {
 
     expect(applyZoneGeometryEdit(seedMapState, zone.id, zone.geometry.coordinates[0])).toBeNull();
     expect(applyCorridorGeometryEdit(seedMapState, corridor.id, corridor.geometry.coordinates)).toBeNull();
+    expect(applyCorridorMetadataEdit(seedMapState, corridor.id, {
+      name: corridor.name,
+      priority: corridor.priority,
+      tags: corridor.tags,
+      notes: corridor.notes,
+    })).toBeNull();
     expect(applyTargetCoordinateEdit(seedMapState, target.id, target.coordinates)).toBeNull();
   });
 });
