@@ -1,5 +1,9 @@
 export type Priority = "high" | "medium" | "low";
 
+export type TargetInfluence = "positive" | "negative" | "neutral";
+
+export type TargetRadiusMinutes = 5 | 10 | 15 | 20;
+
 export type Score = 1 | 2 | 3 | 4 | 5;
 
 export type Coordinate = [number, number];
@@ -37,8 +41,11 @@ export type TargetCorridor = {
 export type TargetPoint = {
   id: string;
   name: string;
+  purpose: string;
   coordinates: Coordinate;
   priority: Priority;
+  influence: TargetInfluence;
+  radiusMinutes: TargetRadiusMinutes;
   notes: string[];
 };
 
@@ -108,6 +115,17 @@ export type MapPatchProposal = {
         type: "updateTargetPriority";
         targetId: string;
         priority: Priority;
+        reason: string;
+      }
+    | {
+        type: "updateTargetPlanningFields";
+        targetId: string;
+        name?: string;
+        purpose?: string;
+        influence?: TargetInfluence;
+        priority?: Priority;
+        radiusMinutes?: TargetRadiusMinutes;
+        notes?: string[];
         reason: string;
       }
     | {

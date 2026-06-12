@@ -124,8 +124,11 @@ const validMapState: MapState = {
     {
       id: "fillmore-california",
       name: "Fillmore & California",
+      purpose: "favorite block",
       coordinates: [-122.433, 37.789],
       priority: "medium",
+      influence: "positive",
+      radiusMinutes: 10,
       notes: [],
     },
   ],
@@ -238,6 +241,34 @@ describe("map storage", () => {
     );
 
     expect(loadMapState(localStorage)).toBeNull();
+  });
+
+  it("migrates legacy target points when loading stored map state", () => {
+    const localStorage = new FakeStorage();
+    const legacyState = {
+      ...validMapState,
+      targets: [
+        {
+          id: "fillmore-california",
+          name: "Fillmore & California",
+          coordinates: [-122.433, 37.789],
+          priority: "medium",
+          notes: [],
+        },
+      ],
+    };
+    localStorage.setItem(mapStateStorageKey, JSON.stringify(legacyState));
+
+    expect(loadMapState(localStorage)?.targets[0]).toEqual({
+      id: "fillmore-california",
+      name: "Fillmore & California",
+      purpose: "Fillmore & California",
+      coordinates: [-122.433, 37.789],
+      priority: "medium",
+      influence: "positive",
+      radiusMinutes: 10,
+      notes: [],
+    });
   });
 
   it("stores geocode cache entries by normalized query", () => {

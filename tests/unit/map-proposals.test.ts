@@ -13,8 +13,11 @@ describe("applyProposal", () => {
           target: {
             id: "sixteenth-mission",
             name: "16th & Mission",
+            purpose: "Test planning anchor",
             coordinates: [-122.4197, 37.7651],
             priority: "medium",
+            influence: "positive",
+            radiusMinutes: 10,
             notes: ["Transit hub; inspect block-by-block."],
           },
         },
@@ -43,8 +46,11 @@ describe("applyProposal", () => {
           target: {
             id: "bad",
             name: "Bad",
+            purpose: "Invalid test planning anchor",
             coordinates: [-73.9857, 40.7484],
             priority: "low",
+            influence: "neutral",
+            radiusMinutes: 10,
             notes: [],
           },
         },
@@ -162,8 +168,11 @@ describe("applyProposal", () => {
           target: {
             id: "lower-pac-heights",
             name: "Conflicting Target",
+            purpose: "Test planning anchor",
             coordinates: [-122.433, 37.789],
             priority: "medium",
+            influence: "positive",
+            radiusMinutes: 10,
             notes: [],
           },
         },
@@ -179,8 +188,11 @@ describe("applyProposal", () => {
           target: {
             id: "valencia",
             name: "Conflicting Target",
+            purpose: "Test planning anchor",
             coordinates: [-122.421, 37.758],
             priority: "medium",
+            influence: "positive",
+            radiusMinutes: 10,
             notes: [],
           },
         },
@@ -276,6 +288,39 @@ describe("applyProposal", () => {
       expect(result.state.targets.find((target) => target.id === "valencia-20th")?.priority).toBe(
         "high",
       );
+    }
+  });
+
+  it("updates target planning fields by ID", () => {
+    const result = applyProposal(seedMapState, {
+      summary: "Clarify Valencia target.",
+      operations: [
+        {
+          type: "updateTargetPlanningFields",
+          targetId: "valencia-20th",
+          purpose: "favorite dinner and fitness block",
+          name: "Valencia near 20th",
+          influence: "positive",
+          priority: "high",
+          radiusMinutes: 15,
+          notes: ["Use as a planning anchor for Mission listings."],
+          reason: "The current pin needs planning context.",
+        },
+      ],
+      confidence: "high",
+      requiresUserReview: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.targets.find((target) => target.id === "valencia-20th")).toMatchObject({
+        purpose: "favorite dinner and fitness block",
+        name: "Valencia near 20th",
+        influence: "positive",
+        priority: "high",
+        radiusMinutes: 15,
+        notes: ["Use as a planning anchor for Mission listings."],
+      });
     }
   });
 });

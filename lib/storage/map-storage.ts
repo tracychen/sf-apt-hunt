@@ -1,6 +1,10 @@
 import { mapStateSchema } from "@/lib/domain/schemas";
-import type { MapState } from "@/lib/domain/types";
+import type { MapState, Priority } from "@/lib/domain/types";
 import { canonicalizeGeocodeQuery } from "@/lib/geocode/canonicalize";
+import {
+  isTargetInfluence,
+  isTargetRadiusMinutes,
+} from "@/lib/map/target-points";
 
 export { canonicalizeGeocodeQuery as canonicalizeGeocodeCacheQuery } from "@/lib/geocode/canonicalize";
 
@@ -128,6 +132,47 @@ function readGeocodeCache(storage: StorageLike) {
   return { ok: true, cache: parseGeocodeCache(parseJson(rawCache.value)) };
 }
 
+function migrateStoredMapState(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const state = value as Record<string, unknown>;
+  if (!Array.isArray(state.targets)) {
+    return value;
+  }
+
+  return {
+    ...state,
+    targets: state.targets.map(migrateStoredTarget),
+  };
+}
+
+function migrateStoredTarget(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const target = value as Record<string, unknown>;
+  const name = typeof target.name === "string" ? target.name : "";
+  const purpose = typeof target.purpose === "string" && target.purpose.trim()
+    ? target.purpose
+    : name;
+  const priority = isPriority(target.priority) ? target.priority : "medium";
+
+  return {
+    ...target,
+    purpose,
+    priority,
+    influence: isTargetInfluence(target.influence) ? target.influence : "positive",
+    radiusMinutes: isTargetRadiusMinutes(target.radiusMinutes) ? target.radiusMinutes : 10,
+  };
+}
+
+function isPriority(value: unknown): value is Priority {
+  return value === "high" || value === "medium" || value === "low";
+}
+
 export function saveMapState(state: MapState, storage?: StorageLike) {
   const localStorage = resolveLocalStorage(storage);
 
@@ -155,7 +200,7 @@ export function loadMapState(storage?: StorageLike): MapState | null {
   }
 
   const parsedState = parseJson(rawState.value);
-  const result = mapStateSchema.safeParse(parsedState);
+  const result = mapStateSchema.safeParse(migrateStoredMapState(parsedState));
   return result.success ? result.data : null;
 }
 

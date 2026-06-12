@@ -136,3 +136,33 @@
   min-height: 58vh;
   height: 100%;
 }
+
+.target-anchor-marker {
+  background: transparent;
+  border: 0;
+}
+
+.target-anchor-marker span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+}
+
+.target-anchor-marker-positive span {
+  background: #0f766e;
+}
+
+.target-anchor-marker-negative span {
+  background: #dc2626;
+}
+
+.target-anchor-marker-neutral span {
+  background: #475569;
+}
+
+.target-anchor-marker-selected span {
+  outline: 3px solid #f97316;
+  outline-offset: 2px;
+}

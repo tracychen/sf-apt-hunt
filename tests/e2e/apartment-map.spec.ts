@@ -1,10 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedMapState } from "../../lib/map/seed-data";
 
 const transparentPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
 );
 const mapStateStorageKey = "sf-apt-hunt:map-state:v1";
+const maxTargetNameLength = 160;
+const maxTargetTextLength = 2_000;
+const maxTargetNotes = 50;
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/{tile.openstreetmap.org,*.tile.openstreetmap.org}/**", async (route) => {
@@ -23,6 +27,132 @@ test("renders editable apartment map shell", async ({ page }) => {
   await expect(page.locator(".leaflet-container")).toBeVisible();
   await expect(page.locator(".leaflet-pm-toolbar")).toBeVisible();
   await expect(page.locator(".leaflet-pm-icon-edit")).toBeVisible();
+});
+
+test("target planning anchors show purpose labels and radius rings", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator(".target-anchor-radius")).toHaveCount(3);
+  await expect(
+    page.locator(".target-anchor-marker-positive[title='Mission favorite block · Valencia & 20th']"),
+  ).toBeVisible();
+  await expect(page.locator(".target-anchor-marker-positive").first()).toBeVisible();
+  await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible();
+});
+
+test("edits selected target planning fields from the sidebar", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTitle("Mission favorite block · Valencia & 20th").click();
+  await expect(page.getByLabel("Target purpose")).toHaveValue("Mission favorite block");
+
+  await page.getByLabel("Target purpose").fill("favorite dinner block");
+  await page.getByLabel("Target purpose").blur();
+  await page.getByLabel("Target influence").selectOption("negative");
+  await page.getByLabel("Target priority").selectOption("medium");
+  await page.getByLabel("Target radius").selectOption("15");
+  await page.getByLabel("Target notes").fill("Check evening noise before applying.");
+  await page.getByLabel("Target notes").blur();
+
+  await expect(
+    page.locator(".target-anchor-marker[title='favorite dinner block · Valencia & 20th']"),
+  ).toBeVisible();
+  await expect(page.getByText("Active shape: favorite dinner block · Valencia & 20th")).toBeVisible();
+  await expect(page.getByLabel("Target influence")).toHaveValue("negative");
+  await expect(page.getByLabel("Target radius")).toHaveValue("15");
+});
+
+test("target field edits are undoable and resettable", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTitle("Mission favorite block · Valencia & 20th").click();
+  await page.getByLabel("Target purpose").fill("favorite dinner block");
+  await page.getByLabel("Target purpose").blur();
+  await expect(
+    page.locator(".target-anchor-marker[title='favorite dinner block · Valencia & 20th']"),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(
+    page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
+  ).toBeVisible();
+
+  await page.getByLabel("Target purpose").fill("favorite dinner block");
+  await page.getByLabel("Target purpose").blur();
+  await expect(page.getByLabel("Target purpose")).toHaveValue("favorite dinner block");
+  await page.getByRole("button", { name: "Reset selected shape" }).click();
+  await expect(page.getByLabel("Target purpose")).toHaveValue("Mission favorite block");
+  await expect(
+    page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
+  ).toBeVisible();
+});
+
+test("resetting a custom target removes the stale selected target", async ({ page }) => {
+  await page.addInitScript(
+    ({ key, state }) => {
+      window.localStorage.setItem(key, JSON.stringify(state));
+    },
+    {
+      key: mapStateStorageKey,
+      state: {
+        ...seedMapState,
+        targets: [
+          ...seedMapState.targets,
+          {
+            id: "custom-grocery",
+            name: "Custom grocery",
+            purpose: "easy grocery run",
+            coordinates: [-122.437, 37.776],
+            priority: "medium",
+            influence: "positive",
+            radiusMinutes: 5,
+            notes: ["Temporary errand anchor."],
+          },
+        ],
+      },
+    },
+  );
+
+  await page.goto("/");
+
+  await page.getByTitle("easy grocery run · Custom grocery").click();
+  await expect(page.getByText("Active shape: easy grocery run · Custom grocery")).toBeVisible();
+
+  await page.getByRole("button", { name: "Reset selected shape" }).click();
+
+  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.locator(".target-anchor-marker[title='easy grocery run · Custom grocery']")).toHaveCount(0);
+});
+
+test("clamps selected target planning text fields to persisted schema limits", async ({ page }) => {
+  const overlongPurpose = `purpose-${"p".repeat(maxTargetTextLength + 20)}`;
+  const overlongName = `location-${"n".repeat(maxTargetNameLength + 20)}`;
+  const overlongNotes = [
+    `note-${"x".repeat(maxTargetTextLength + 20)}`,
+    ...Array.from({ length: maxTargetNotes + 5 }, (_, index) => `note-${index}`),
+  ];
+  const clampedPurpose = overlongPurpose.slice(0, maxTargetTextLength);
+  const clampedName = overlongName.slice(0, maxTargetNameLength);
+  const clampedNotes = overlongNotes
+    .slice(0, maxTargetNotes)
+    .map((note) => note.slice(0, maxTargetTextLength));
+
+  await page.goto("/");
+
+  await page.getByTitle("Mission favorite block · Valencia & 20th").click();
+  await page.getByLabel("Target purpose").fill(overlongPurpose);
+  await page.getByLabel("Target purpose").blur();
+  await page.getByLabel("Target location label").fill(overlongName);
+  await page.getByLabel("Target location label").blur();
+  await page.getByLabel("Target notes").fill(overlongNotes.join("\n"));
+  await page.getByLabel("Target notes").blur();
+
+  await page.reload();
+
+  await page.locator(`.target-anchor-marker-positive[title^="${clampedPurpose.slice(0, 24)}"]`).click();
+  await expect(page.getByLabel("Target purpose")).toHaveValue(clampedPurpose);
+  await expect(page.getByLabel("Target location label")).toHaveValue(clampedName);
+  await expect(page.getByLabel("Target notes")).toHaveValue(clampedNotes.join("\n"));
 });
 
 test("fits the apartment map on a mobile viewport without horizontal overflow", async ({ page }) => {
@@ -54,16 +184,16 @@ test("shows proposal review before applying AI changes", async ({ page }) => {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        explanation: "I can raise Valencia priority.",
+        explanation: "I can replace the Valencia target note.",
         intent: "prioritization",
         proposal: {
-          summary: "Raise Valencia priority.",
+          summary: "Replace Valencia target notes.",
           operations: [
             {
-              type: "updateCorridorPriority",
-              corridorId: "valencia",
-              priority: "high",
-              reason: "Best fitness fit.",
+              type: "updateTargetPlanningFields",
+              targetId: "valencia-20th",
+              notes: ["Check evening noise before applying."],
+              reason: "The note should carry more useful planning context.",
             },
           ],
           confidence: "high",
@@ -90,7 +220,9 @@ test("shows proposal review before applying AI changes", async ({ page }) => {
   await page.getByLabel("Ask the assistant").fill("Make Valencia target corridor more important");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByText("Raise Valencia priority.")).toBeVisible();
+  await expect(page.getByText("Replace Valencia target notes.")).toBeVisible();
+  await expect(page.getByText("Before: Mission Dolores / Valencia reference point.")).toBeVisible();
+  await expect(page.getByText("After: Check evening noise before applying.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeVisible();
   expect(applyProposalCalled).toBe(false);
 });

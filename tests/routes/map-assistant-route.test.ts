@@ -113,6 +113,104 @@ describe("POST /api/ai/map-assistant", () => {
     expect(JSON.stringify(payload)).toContain(
       '"fitnessScore":{"anyOf":[{"enum":[1,2,3,4,5]},{"type":"null"}]}',
     );
+    expect(JSON.stringify(payload)).toContain('"type":{"const":"updateTargetPlanningFields"}');
+    expect(JSON.stringify(payload)).toContain(
+      '"purpose":{"anyOf":[{"type":"string","minLength":1,"maxLength":2000},{"type":"null"}]}',
+    );
+  });
+
+  it("parses addTarget proposals with target planning fields", async () => {
+    const proposalResponse = {
+      explanation: "I found one new target worth reviewing.",
+      intent: "map_edit",
+      proposal: {
+        summary: "Add a Divisadero grocery target.",
+        operations: [
+          {
+            type: "addTarget",
+            target: {
+              id: "divisadero-grocery",
+              name: "Divisadero grocery",
+              purpose: "easy grocery run",
+              coordinates: [-122.437, 37.776],
+              priority: "medium",
+              influence: "positive",
+              radiusMinutes: 10,
+              notes: ["Useful errand anchor for NOPA."],
+            },
+          },
+        ],
+        confidence: "medium",
+        requiresUserReview: true,
+      },
+      confidence: "medium",
+      caveats: [],
+    };
+    mockOpenAiResponse({ output_text: JSON.stringify(proposalResponse) });
+
+    const response = await POST(
+      createRequest(
+        {
+          message: "Add a grocery target near Divisadero.",
+          mapState: seedMapState,
+        },
+        "Bearer sk-test-map",
+      ),
+    );
+
+    await expect(response.json()).resolves.toEqual(proposalResponse);
+    expect(response.status).toBe(200);
+  });
+
+  it("normalizes null updateTargetPlanningFields fields from structured output", async () => {
+    mockOpenAiResponse({
+      output_text: JSON.stringify({
+        explanation: "I found one target update worth reviewing.",
+        intent: "prioritization",
+        proposal: {
+          summary: "Update Valencia target purpose.",
+          operations: [
+            {
+              type: "updateTargetPlanningFields",
+              targetId: "valencia-20th",
+              name: null,
+              purpose: "favorite block",
+              influence: null,
+              priority: null,
+              radiusMinutes: 15,
+              notes: null,
+              reason: "The pin should carry planning context.",
+            },
+          ],
+          confidence: "medium",
+          requiresUserReview: true,
+        },
+        confidence: "medium",
+        caveats: [],
+      }),
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          message: "Make Valencia a favorite block target.",
+          mapState: seedMapState,
+        },
+        "Bearer sk-test-map",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.proposal.operations).toEqual([
+      {
+        type: "updateTargetPlanningFields",
+        targetId: "valencia-20th",
+        purpose: "favorite block",
+        radiusMinutes: 15,
+        reason: "The pin should carry planning context.",
+      },
+    ]);
   });
 
   it("normalizes null updateZoneScores fields from structured output", async () => {

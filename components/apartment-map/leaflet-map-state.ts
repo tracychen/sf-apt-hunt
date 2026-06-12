@@ -1,4 +1,10 @@
 import type { Coordinate, MapState } from "@/lib/domain/types";
+import { seedMapState } from "@/lib/map/seed-data";
+import { isCoordinateInSfBounds } from "@/lib/map/sf-bounds";
+import {
+  applyTargetPlanningFieldPatch,
+  type TargetPlanningFieldPatch,
+} from "@/lib/map/target-points";
 
 export type PersistResult = MapState | null;
 
@@ -89,7 +95,7 @@ export function applyTargetCoordinateEdit(
 ): PersistResult {
   const target = mapState.targets.find((item) => item.id === targetId);
 
-  if (!target || coordinateEqual(target.coordinates, coordinates)) {
+  if (!target || coordinateEqual(target.coordinates, coordinates) || !isCoordinateInSfBounds(coordinates)) {
     return null;
   }
 
@@ -99,9 +105,31 @@ export function applyTargetCoordinateEdit(
       item.id === targetId
         ? {
             ...item,
+            name: shouldUseCustomLocationLabel(item, coordinates) ? "Custom location" : item.name,
             coordinates,
           }
         : item,
     ),
   };
+}
+
+export function applyTargetPlanningFieldEdit(
+  mapState: MapState,
+  targetId: string,
+  patch: TargetPlanningFieldPatch,
+): PersistResult {
+  return applyTargetPlanningFieldPatch(mapState, targetId, patch);
+}
+
+function shouldUseCustomLocationLabel(
+  target: MapState["targets"][number],
+  coordinates: Coordinate,
+) {
+  const seedTarget = seedMapState.targets.find((item) => item.id === target.id);
+
+  return Boolean(
+    seedTarget &&
+      target.name === seedTarget.name &&
+      !coordinateEqual(seedTarget.coordinates, coordinates),
+  );
 }

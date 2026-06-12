@@ -186,6 +186,13 @@ export function ApartmentMapApp() {
       setSelectedZoneIds((ids) => ids.filter((id) => id !== selectedEntity.id));
       setSelectedEntity(null);
     }
+
+    if (
+      selectedEntity.kind === "target" &&
+      !seedMapState.targets.some((target) => target.id === selectedEntity.id)
+    ) {
+      setSelectedEntity(null);
+    }
   }
 
   function updateApiKey(nextApiKey: string | null, nextRemembered: boolean) {
@@ -275,6 +282,7 @@ export function ApartmentMapApp() {
         listingSearchMeta={listingSearchMeta}
         proposal={proposal}
         onApiKeyChange={updateApiKey}
+        onMapStateChange={updateMapState}
         onVisibleLayersChange={setVisibleLayers}
         onListingSearchResponse={handleListingSearchResponse}
         onProposalChange={setProposal}

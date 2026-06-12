@@ -129,12 +129,12 @@ function getErrorDetails(error: unknown) {
   return error;
 }
 
-// OpenAI strict json_schema requires every property in `required`, so the
-// updateZoneScores score fields are declared required-and-nullable in the JSON
-// schema. The Zod domain schema instead treats absent scores as "no change"
-// (`.optional()`). This bridges the two by dropping model-supplied `null`s back
-// to absent before Zod validation. See the "keep three representations in sync"
-// note in AGENTS.md.
+// OpenAI strict json_schema requires every property in `required`, so nullable
+// proposal fields are declared required-and-nullable in the JSON schema. The
+// Zod domain schema instead treats absent fields as "no change" (`.optional()`).
+// This bridges the two by dropping model-supplied `null`s back to absent before
+// Zod validation. See the "keep three representations in sync" note in
+// AGENTS.md.
 function normalizeMapAssistantResponse(value: unknown) {
   if (!isRecord(value) || !isRecord(value.proposal) || !Array.isArray(value.proposal.operations)) {
     return value;
@@ -150,15 +150,37 @@ function normalizeMapAssistantResponse(value: unknown) {
 }
 
 function normalizeMapPatchOperation(operation: unknown) {
-  if (!isRecord(operation) || operation.type !== "updateZoneScores") {
+  if (!isRecord(operation)) {
     return operation;
   }
 
+  if (operation.type === "updateZoneScores") {
+    return omitNullFields(operation, ["fitnessScore", "affordabilityScore", "carFreeScore"]);
+  }
+
+  if (operation.type === "updateTargetPlanningFields") {
+    return omitNullFields(operation, [
+      "name",
+      "purpose",
+      "influence",
+      "priority",
+      "radiusMinutes",
+      "notes",
+    ]);
+  }
+
+  return operation;
+}
+
+function omitNullFields<TField extends string>(
+  operation: Record<string, unknown>,
+  fields: readonly TField[],
+) {
   const normalizedOperation = { ...operation };
 
-  for (const scoreField of ["fitnessScore", "affordabilityScore", "carFreeScore"] as const) {
-    if (normalizedOperation[scoreField] === null) {
-      delete normalizedOperation[scoreField];
+  for (const field of fields) {
+    if (normalizedOperation[field] === null) {
+      delete normalizedOperation[field];
     }
   }
 
@@ -172,6 +194,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const scoreJsonSchema = { enum: [1, 2, 3, 4, 5] };
 const nullableScoreJsonSchema = { anyOf: [scoreJsonSchema, { type: "null" }] };
 const priorityJsonSchema = { enum: ["high", "medium", "low"] };
+const nullableTextJsonSchema = {
+  anyOf: [{ type: "string", minLength: 1, maxLength: 2000 }, { type: "null" }],
+};
+const nullableNameJsonSchema = {
+  anyOf: [{ type: "string", minLength: 1, maxLength: 160 }, { type: "null" }],
+};
+const targetInfluenceJsonSchema = { enum: ["positive", "negative", "neutral"] };
+const nullableTargetInfluenceJsonSchema = {
+  anyOf: [targetInfluenceJsonSchema, { type: "null" }],
+};
+const targetRadiusMinutesJsonSchema = { enum: [5, 10, 15, 20] };
+const nullableTargetRadiusMinutesJsonSchema = {
+  anyOf: [targetRadiusMinutesJsonSchema, { type: "null" }],
+};
+const nullablePriorityJsonSchema = {
+  anyOf: [priorityJsonSchema, { type: "null" }],
+};
 const coordinateJsonSchema = {
   type: "array",
   minItems: 2,
@@ -183,15 +222,30 @@ const textArrayJsonSchema = {
   maxItems: 50,
   items: { type: "string", maxLength: 2000 },
 };
+const nullableTextArrayJsonSchema = {
+  anyOf: [textArrayJsonSchema, { type: "null" }],
+};
 const targetPointJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "name", "coordinates", "priority", "notes"],
+  required: [
+    "id",
+    "name",
+    "purpose",
+    "coordinates",
+    "priority",
+    "influence",
+    "radiusMinutes",
+    "notes",
+  ],
   properties: {
     id: { type: "string", minLength: 1, maxLength: 128 },
     name: { type: "string", minLength: 1, maxLength: 160 },
+    purpose: { type: "string", minLength: 1, maxLength: 2000 },
     coordinates: coordinateJsonSchema,
     priority: priorityJsonSchema,
+    influence: targetInfluenceJsonSchema,
+    radiusMinutes: targetRadiusMinutesJsonSchema,
     notes: textArrayJsonSchema,
   },
 };
@@ -293,6 +347,32 @@ const mapPatchProposalJsonSchema = {
               type: { const: "updateTargetPriority" },
               targetId: { type: "string", minLength: 1, maxLength: 128 },
               priority: priorityJsonSchema,
+              reason: { type: "string", minLength: 1, maxLength: 2000 },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "type",
+              "targetId",
+              "name",
+              "purpose",
+              "influence",
+              "priority",
+              "radiusMinutes",
+              "notes",
+              "reason",
+            ],
+            properties: {
+              type: { const: "updateTargetPlanningFields" },
+              targetId: { type: "string", minLength: 1, maxLength: 128 },
+              name: nullableNameJsonSchema,
+              purpose: nullableTextJsonSchema,
+              influence: nullableTargetInfluenceJsonSchema,
+              priority: nullablePriorityJsonSchema,
+              radiusMinutes: nullableTargetRadiusMinutesJsonSchema,
+              notes: nullableTextArrayJsonSchema,
               reason: { type: "string", minLength: 1, maxLength: 2000 },
             },
           },

@@ -18,6 +18,8 @@ function describeOperation(operation: ProposalOperation) {
       return `Set corridor ${operation.corridorId} to ${operation.priority}`;
     case "updateTargetPriority":
       return `Set target ${operation.targetId} to ${operation.priority}`;
+    case "updateTargetPlanningFields":
+      return `Update target planning fields: ${operation.targetId}`;
     case "updateZoneScores":
       return `Update zone scores: ${operation.zoneId}`;
     case "replaceZoneGeometry":
@@ -40,6 +42,31 @@ function operationPreview(operation: ProposalOperation, mapState: MapState) {
       return target
         ? `Before: ${target.priority}; after: ${operation.priority}.`
         : `After: ${operation.priority}.`;
+    }
+    case "updateTargetPlanningFields": {
+      const target = mapState.targets.find((item) => item.id === operation.targetId);
+      if (!target) {
+        return "Planning field preview unavailable for unknown target.";
+      }
+
+      return [
+        operation.name !== undefined ? `name ${target.name}->${operation.name}` : null,
+        operation.purpose !== undefined ? `purpose ${target.purpose}->${operation.purpose}` : null,
+        operation.influence !== undefined
+          ? `influence ${target.influence}->${operation.influence}`
+          : null,
+        operation.priority !== undefined
+          ? `priority ${target.priority}->${operation.priority}`
+          : null,
+        operation.radiusMinutes !== undefined
+          ? `radius ${target.radiusMinutes}->${operation.radiusMinutes} min`
+          : null,
+        operation.notes !== undefined
+          ? `notes Before: ${formatNotesPreview(target.notes)}; After: ${formatNotesPreview(operation.notes)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
     }
     case "updateZoneScores": {
       const zone = mapState.zones.find((item) => item.id === operation.zoneId);
@@ -143,6 +170,10 @@ function GeometryPreviewForOperation({
 
 function formatCoordinate([lng, lat]: Coordinate) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+function formatNotesPreview(notes: string[]) {
+  return notes.length > 0 ? notes.join(" / ") : "none";
 }
 
 export function ProposalReviewDialog({

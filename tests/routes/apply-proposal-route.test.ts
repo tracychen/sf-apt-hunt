@@ -24,8 +24,11 @@ function createStateAtTargetLimit(): MapState {
     (_, index) => ({
       id: `limit-target-${index}`,
       name: `Limit Target ${index}`,
+      purpose: `Limit Target ${index}`,
       coordinates: [-122.421, 37.758],
       priority: "low",
+      influence: "neutral",
+      radiusMinutes: 10,
       notes: [],
     }),
   );
@@ -150,8 +153,11 @@ describe("POST /api/map/apply-proposal", () => {
               target: {
                 id: "target-over-limit",
                 name: "Target Over Limit",
+                purpose: "Target over limit",
                 coordinates: [-122.421, 37.758],
                 priority: "low",
+                influence: "neutral",
+                radiusMinutes: 10,
                 notes: [],
               },
             },

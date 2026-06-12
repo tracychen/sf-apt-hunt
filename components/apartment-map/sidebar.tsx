@@ -16,7 +16,9 @@ import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { AssistantPanel } from "@/components/apartment-map/assistant-panel";
 import { ListingResults } from "@/components/apartment-map/listing-results";
 import { ProposalReviewDialog } from "@/components/apartment-map/proposal-review-dialog";
+import { TargetEditor } from "@/components/apartment-map/target-editor";
 import { Button } from "@/components/ui/button";
+import { formatTargetLabel } from "@/lib/map/target-points";
 
 export function Sidebar({
   apiKey,
@@ -29,6 +31,7 @@ export function Sidebar({
   listingSearchMeta,
   proposal,
   onApiKeyChange,
+  onMapStateChange,
   onVisibleLayersChange,
   onListingSearchResponse,
   onProposalChange,
@@ -50,6 +53,7 @@ export function Sidebar({
   listingSearchMeta: Pick<ListingSearchResponse, "sourceSummary" | "citations" | "caveats"> | null;
   proposal: MapPatchProposal | null;
   onApiKeyChange: (key: string | null, remembered: boolean) => void;
+  onMapStateChange: (state: MapState) => void;
   onVisibleLayersChange: (layers: VisibleMapLayers) => void;
   onListingSearchResponse: (response: ListingSearchResponse) => void;
   onProposalChange: (proposal: MapPatchProposal | null) => void;
@@ -62,6 +66,10 @@ export function Sidebar({
   canResetSelectedShapes: boolean;
 }) {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const selectedTarget =
+    selectedEntity?.kind === "target"
+      ? mapState.targets.find((target) => target.id === selectedEntity.id) ?? null
+      : null;
 
   function toggleLayer(layer: keyof VisibleMapLayers) {
     onVisibleLayersChange({
@@ -128,6 +136,14 @@ export function Sidebar({
           {exportStatus ? <p className="mt-3 text-xs text-muted-foreground">{exportStatus}</p> : null}
         </section>
 
+        {selectedTarget ? (
+          <TargetEditor
+            mapState={mapState}
+            target={selectedTarget}
+            onMapStateChange={onMapStateChange}
+          />
+        ) : null}
+
         <ApiKeyDialog
           apiKey={apiKey}
           remembered={remembered}
@@ -173,5 +189,6 @@ function describeSelectedEntity(selectedEntity: SelectedMapEntity, mapState: Map
     );
   }
 
-  return mapState.targets.find((target) => target.id === selectedEntity.id)?.name ?? selectedEntity.id;
+  const target = mapState.targets.find((item) => item.id === selectedEntity.id);
+  return target ? formatTargetLabel(target) : selectedEntity.id;
 }

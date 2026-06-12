@@ -5,6 +5,7 @@ import {
   isLineStringInSfBounds,
   isPolygonInSfBounds,
 } from "@/lib/map/sf-bounds";
+import { applyTargetPlanningFieldPatch } from "@/lib/map/target-points";
 
 export type ProposalApplyResult =
   | { ok: true; state: MapState }
@@ -98,6 +99,28 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
               : target,
           ),
         };
+        break;
+      }
+
+      case "updateTargetPlanningFields": {
+        if (!nextState.targets.some((target) => target.id === operation.targetId)) {
+          return { ok: false, error: "Unknown target ID." };
+        }
+
+        const nextTargetState = applyTargetPlanningFieldPatch(nextState, operation.targetId, {
+          name: operation.name,
+          purpose: operation.purpose,
+          influence: operation.influence,
+          priority: operation.priority,
+          radiusMinutes: operation.radiusMinutes,
+          notes: operation.notes,
+        });
+
+        if (!nextTargetState) {
+          return { ok: false, error: "Target planning fields did not change." };
+        }
+
+        nextState = nextTargetState;
         break;
       }
 

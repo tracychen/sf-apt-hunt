@@ -13,8 +13,13 @@ import type {
   TargetCorridor,
   TargetPoint,
 } from "@/lib/domain/types";
+import { isCoordinateInSfBounds } from "@/lib/map/sf-bounds";
 
 const coordinateSchema = z.tuple([z.number(), z.number()]);
+const targetCoordinateSchema = coordinateSchema.refine(
+  (coordinate) => isCoordinateInSfBounds(coordinate),
+  "Target coordinates must be inside San Francisco bounds.",
+);
 
 const scoreSchema = z.union([
   z.literal(1),
@@ -25,6 +30,13 @@ const scoreSchema = z.union([
 ]);
 
 const prioritySchema = z.enum(["high", "medium", "low"]);
+const targetInfluenceSchema = z.enum(["positive", "negative", "neutral"]);
+const targetRadiusMinutesSchema = z.union([
+  z.literal(5),
+  z.literal(10),
+  z.literal(15),
+  z.literal(20),
+]);
 
 const MAX_ID_LENGTH = 128;
 const MAX_NAME_LENGTH = 160;
@@ -92,8 +104,11 @@ export const targetCorridorSchema: z.ZodType<TargetCorridor> = z.object({
 export const targetPointSchema: z.ZodType<TargetPoint> = z.object({
   id: idSchema,
   name: nameSchema,
-  coordinates: coordinateSchema,
+  purpose: requiredTextSchema,
+  coordinates: targetCoordinateSchema,
   priority: prioritySchema,
+  influence: targetInfluenceSchema,
+  radiusMinutes: targetRadiusMinutesSchema,
   notes: notesSchema,
 });
 
@@ -151,6 +166,18 @@ export const listingSearchResponseSchema: z.ZodType<ListingSearchResponse> = z.o
   geocodeAuthorization: geocodeAuthorizationSchema.nullable(),
 });
 
+const updateTargetPlanningFieldsOperationSchema = z.object({
+  type: z.literal("updateTargetPlanningFields"),
+  targetId: idSchema,
+  name: nameSchema.optional(),
+  purpose: requiredTextSchema.optional(),
+  influence: targetInfluenceSchema.optional(),
+  priority: prioritySchema.optional(),
+  radiusMinutes: targetRadiusMinutesSchema.optional(),
+  notes: notesSchema.optional(),
+  reason: requiredTextSchema,
+});
+
 export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
   summary: requiredLongTextSchema,
   operations: z.array(
@@ -169,6 +196,7 @@ export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
         priority: prioritySchema,
         reason: requiredTextSchema,
       }),
+      updateTargetPlanningFieldsOperationSchema,
       z.object({
         type: z.literal("updateZoneScores"),
         zoneId: idSchema,
@@ -191,6 +219,28 @@ export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
   ).max(MAX_PROPOSAL_OPERATIONS),
   confidence: z.enum(["low", "medium", "high"]),
   requiresUserReview: z.literal(true),
+}).superRefine((proposal, context) => {
+  proposal.operations.forEach((operation, index) => {
+    if (operation.type !== "updateTargetPlanningFields") {
+      return;
+    }
+
+    const hasTargetField =
+      operation.name !== undefined ||
+      operation.purpose !== undefined ||
+      operation.influence !== undefined ||
+      operation.priority !== undefined ||
+      operation.radiusMinutes !== undefined ||
+      operation.notes !== undefined;
+
+    if (!hasTargetField) {
+      context.addIssue({
+        code: "custom",
+        path: ["operations", index],
+        message: "At least one target planning field must be provided.",
+      });
+    }
+  });
 });
 
 export const mapStateSchema: z.ZodType<MapState> = z.object({

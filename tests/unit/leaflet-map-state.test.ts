@@ -3,6 +3,7 @@ import { seedMapState } from "@/lib/map/seed-data";
 import {
   applyCorridorGeometryEdit,
   applyTargetCoordinateEdit,
+  applyTargetPlanningFieldEdit,
   applyZoneGeometryEdit,
 } from "@/components/apartment-map/leaflet-map-state";
 
@@ -43,6 +44,51 @@ describe("leaflet map state edits", () => {
       -122.4225,
       37.7595,
     ]);
+  });
+
+  it("rejects target marker coordinates outside San Francisco", () => {
+    expect(applyTargetCoordinateEdit(seedMapState, "valencia-20th", [-73.9857, 40.7484])).toBeNull();
+  });
+
+  it("renames an untouched seed target when dragged away from its seed location", () => {
+    const nextState = applyTargetCoordinateEdit(seedMapState, "valencia-20th", [-122.4225, 37.7595]);
+
+    expect(nextState?.targets.find((target) => target.id === "valencia-20th")?.name).toBe(
+      "Custom location",
+    );
+    expect(nextState?.targets.find((target) => target.id === "valencia-20th")?.purpose).toBe(
+      "Mission favorite block",
+    );
+  });
+
+  it("does not overwrite a manually edited target location label when dragged", () => {
+    const editedState = {
+      ...seedMapState,
+      targets: seedMapState.targets.map((target) =>
+        target.id === "valencia-20th" ? { ...target, name: "My favorite Valencia block" } : target,
+      ),
+    };
+    const nextState = applyTargetCoordinateEdit(editedState, "valencia-20th", [-122.4225, 37.7595]);
+
+    expect(nextState?.targets.find((target) => target.id === "valencia-20th")?.name).toBe(
+      "My favorite Valencia block",
+    );
+  });
+
+  it("updates target planning fields", () => {
+    const nextState = applyTargetPlanningFieldEdit(seedMapState, "polk-sacramento", {
+      purpose: "late-night noise",
+      influence: "negative",
+      radiusMinutes: 15,
+      notes: ["Avoid this area after midnight."],
+    });
+
+    expect(nextState?.targets.find((target) => target.id === "polk-sacramento")).toMatchObject({
+      purpose: "late-night noise",
+      influence: "negative",
+      radiusMinutes: 15,
+      notes: ["Avoid this area after midnight."],
+    });
   });
 
   it("returns null when edited geometry does not change", () => {

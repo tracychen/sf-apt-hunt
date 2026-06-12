@@ -63,11 +63,44 @@ describe("domain schemas", () => {
       targetPointSchema.parse({
         id: "fillmore-california",
         name: "Fillmore & California",
+        purpose: "Lower Pac Heights reference point",
         coordinates: [-122.433, 37.789],
         priority: "high",
+        influence: "positive",
+        radiusMinutes: 10,
         notes: [],
       }),
     ).not.toThrow();
+  });
+
+  it("validates target planning fields", () => {
+    expect(() =>
+      targetPointSchema.parse({
+        id: "fillmore-california",
+        name: "Fillmore & California",
+        purpose: "favorite block",
+        coordinates: [-122.433, 37.789],
+        priority: "high",
+        influence: "positive",
+        radiusMinutes: 10,
+        notes: [],
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects target coordinates outside San Francisco", () => {
+    expect(() =>
+      targetPointSchema.parse({
+        id: "outside-sf",
+        name: "Outside SF",
+        purpose: "not a San Francisco planning anchor",
+        coordinates: [-73.9857, 40.7484],
+        priority: "low",
+        influence: "neutral",
+        radiusMinutes: 10,
+        notes: [],
+      }),
+    ).toThrow();
   });
 
   it("rejects non-http(s) listing and citation URLs", () => {
@@ -302,6 +335,43 @@ describe("domain schemas", () => {
     ).not.toThrow();
   });
 
+  it("validates target planning field proposal operations", () => {
+    expect(() =>
+      mapPatchProposalSchema.parse({
+        summary: "Update a target planning anchor.",
+        operations: [
+          {
+            type: "updateTargetPlanningFields",
+            targetId: "valencia-20th",
+            purpose: "favorite block",
+            influence: "positive",
+            radiusMinutes: 15,
+            reason: "This point should describe why it matters.",
+          },
+        ],
+        confidence: "high",
+        requiresUserReview: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects target planning field proposal operations without a field change", () => {
+    expect(() =>
+      mapPatchProposalSchema.parse({
+        summary: "No target field changes.",
+        operations: [
+          {
+            type: "updateTargetPlanningFields",
+            targetId: "valencia-20th",
+            reason: "No editable field was supplied.",
+          },
+        ],
+        confidence: "low",
+        requiresUserReview: true,
+      }),
+    ).toThrow();
+  });
+
   it("caps map state collection sizes", () => {
     const zone = {
       id: "mission-dolores-valencia",
@@ -368,8 +438,11 @@ describe("domain schemas", () => {
       targetPointSchema.parse({
         id: "fillmore-california",
         name: "Fillmore & California",
+        purpose: "Lower Pac Heights reference point",
         coordinates: [-122.433, 37.789],
         priority: "high",
+        influence: "positive",
+        radiusMinutes: 10,
         notes: ["x".repeat(2_001)],
       }),
     ).toThrow();

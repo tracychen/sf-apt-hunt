@@ -2,8 +2,9 @@
 
 import type {} from "@geoman-io/leaflet-geoman-free";
 import L, { type LatLngExpression, type LatLngTuple, type PathOptions } from "leaflet";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Circle,
   MapContainer,
   Marker,
   Polygon,
@@ -14,13 +15,24 @@ import {
   ZoomControl,
   useMap,
 } from "react-leaflet";
-import type { Coordinate, ListingCandidate, MapState, Priority } from "@/lib/domain/types";
+import type {
+  Coordinate,
+  ListingCandidate,
+  MapState,
+  Priority,
+  TargetInfluence,
+  TargetPoint,
+} from "@/lib/domain/types";
 import {
   applyCorridorGeometryEdit,
   applyTargetCoordinateEdit,
   applyZoneGeometryEdit,
   type PersistResult,
 } from "@/components/apartment-map/leaflet-map-state";
+import {
+  formatTargetLabel,
+  targetRadiusMeters,
+} from "@/lib/map/target-points";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
@@ -149,6 +161,44 @@ function corridorPathOptions(priority: Priority): PathOptions {
   }
 
   return { color: "#475569", opacity: 0.8, weight: 3 };
+}
+
+function targetInfluenceColor(influence: TargetInfluence) {
+  if (influence === "negative") {
+    return "#dc2626";
+  }
+
+  if (influence === "neutral") {
+    return "#475569";
+  }
+
+  return "#0f766e";
+}
+
+function targetRadiusPathOptions(target: TargetPoint, selected: boolean): PathOptions {
+  const color = targetInfluenceColor(target.influence);
+
+  return {
+    color,
+    fillColor: color,
+    fillOpacity: selected ? 0.12 : 0.07,
+    opacity: selected ? 0.55 : 0.35,
+    weight: selected ? 2 : 1,
+  };
+}
+
+function targetMarkerIcon(target: TargetPoint, selected: boolean) {
+  return L.divIcon({
+    className: [
+      "target-anchor-marker",
+      `target-anchor-marker-${target.influence}`,
+      selected ? "target-anchor-marker-selected" : "",
+    ].filter(Boolean).join(" "),
+    html: `<span aria-hidden="true"></span>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+    popupAnchor: [0, -9],
+  });
 }
 
 function GeomanControls() {
@@ -333,8 +383,7 @@ function TargetMarker({
   onSelect,
   position,
   selected,
-  targetId,
-  title,
+  target,
 }: {
   children: ReactNode;
   mapState: MapState;
@@ -342,20 +391,22 @@ function TargetMarker({
   onSelect: () => void;
   position: LatLngExpression;
   selected: boolean;
-  targetId: string;
-  title: string;
+  target: TargetPoint;
 }) {
   const [markerLayer, setMarkerLayer] = useState<L.Marker | null>(null);
+  const label = formatTargetLabel(target);
 
   usePersistentEditedLayer(markerLayer, mapState, onMapStateChange, (layer, currentMapState) =>
-    applyTargetCoordinateEdit(currentMapState, targetId, fromLatLng(layer.getLatLng())),
+    applyTargetCoordinateEdit(currentMapState, target.id, fromLatLng(layer.getLatLng())),
   );
 
   return (
     <Marker
+      key={`${label}:${target.influence}`}
       ref={setMarkerLayer}
       position={position}
-      title={title}
+      icon={targetMarkerIcon(target, selected)}
+      title={label}
       draggable
       zIndexOffset={selected ? 900 : 0}
       eventHandlers={{ click: onSelect }}
@@ -519,26 +570,41 @@ export function LeafletMap({
           );
         }) : null}
 
-        {visibleLayers.targets ? mapState.targets.map((target) => (
-          <TargetMarker
-            key={target.id}
-            mapState={mapState}
-            onMapStateChange={onMapStateChange}
-            onSelect={() => onSelectedEntityChange({ kind: "target", id: target.id })}
-            position={toLatLng(target.coordinates)}
-            selected={selectedEntity?.kind === "target" && selectedEntity.id === target.id}
-            targetId={target.id}
-            title={target.name}
-          >
-            <Popup>
-              <div className="space-y-1 text-sm">
-                <p className="font-semibold">{target.name}</p>
-                <p>{target.priority} priority target</p>
-                <p>{formatCoordinate(target.coordinates)}</p>
-              </div>
-            </Popup>
-          </TargetMarker>
-        )) : null}
+        {visibleLayers.targets ? mapState.targets.map((target) => {
+          const selected = selectedEntity?.kind === "target" && selectedEntity.id === target.id;
+          const label = formatTargetLabel(target);
+
+          return (
+            <Fragment key={target.id}>
+              <Circle
+                center={toLatLng(target.coordinates)}
+                className="target-anchor-radius"
+                interactive={false}
+                pathOptions={targetRadiusPathOptions(target, selected)}
+                pmIgnore
+                radius={targetRadiusMeters(target)}
+              />
+              <TargetMarker
+                mapState={mapState}
+                onMapStateChange={onMapStateChange}
+                onSelect={() => onSelectedEntityChange({ kind: "target", id: target.id })}
+                position={toLatLng(target.coordinates)}
+                selected={selected}
+                target={target}
+              >
+                <Tooltip sticky>{label}</Tooltip>
+                <Popup>
+                  <div className="space-y-1 text-sm">
+                    <p className="font-semibold">{label}</p>
+                    <p>{target.priority} priority / {target.influence}</p>
+                    <p>{target.radiusMinutes} min planning radius</p>
+                    <p>{formatCoordinate(target.coordinates)}</p>
+                  </div>
+                </Popup>
+              </TargetMarker>
+            </Fragment>
+          );
+        }) : null}
 
         {visibleLayers.listings ? listingPins.map((listing) => (
           <ListingMarker key={listing.id} position={toLatLng(listing.coordinates)} title={listing.title}>
