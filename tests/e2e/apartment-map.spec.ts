@@ -62,6 +62,29 @@ test("edits selected target planning fields from the sidebar", async ({ page }) 
   await expect(page.getByLabel("Target radius")).toHaveValue("15");
 });
 
+test("edits selected corridor metadata from the sidebar", async ({ page }) => {
+  await page.goto("/");
+
+  await clickPolkCorridor(page);
+  await expect(page.getByLabel("Corridor name")).toHaveValue("Polk Street");
+
+  await page.getByLabel("Corridor name").fill("Polk Gulch spine");
+  await page.getByLabel("Corridor name").blur();
+  await page.getByLabel("Corridor priority").selectOption("high");
+  await page.getByLabel("Corridor tag transit").check();
+  await page.getByLabel("Corridor tag rent").uncheck();
+  await page.getByLabel("Corridor notes").fill("Prioritize this north-side run.");
+  await page.getByLabel("Corridor notes").blur();
+
+  await expect(page.getByText("Active shape: Polk Gulch spine")).toBeVisible();
+  await expect(page.getByLabel("Corridor priority")).toHaveValue("high");
+  await expect(page.getByLabel("Corridor tag transit")).toBeChecked();
+
+  await page.reload();
+  await clickPolkCorridor(page);
+  await expect(page.getByLabel("Corridor notes")).toHaveValue("Prioritize this north-side run.");
+});
+
 test("target field edits are undoable and resettable", async ({ page }) => {
   await page.goto("/");
 
@@ -122,6 +145,47 @@ test("resetting a custom target removes the stale selected target", async ({ pag
 
   await expect(page.getByText("Active shape: None")).toBeVisible();
   await expect(page.locator(".target-anchor-marker[title='easy grocery run · Custom grocery']")).toHaveCount(0);
+});
+
+test("resetting a custom corridor removes the stale selected corridor", async ({ page }) => {
+  await page.addInitScript(
+    ({ key, state }) => {
+      window.localStorage.setItem(key, JSON.stringify(state));
+    },
+    {
+      key: mapStateStorageKey,
+      state: {
+        ...seedMapState,
+        corridors: [
+          ...seedMapState.corridors,
+          {
+            id: "custom-corridor",
+            name: "Custom corridor",
+            geometry: {
+              type: "LineString",
+              coordinates: [
+                [-122.437, 37.776],
+                [-122.431, 37.781],
+              ],
+            },
+            priority: "medium",
+            tags: ["transit"],
+            notes: ["Temporary corridor."],
+          },
+        ],
+      },
+    },
+  );
+
+  await page.goto("/");
+
+  await clickCustomCorridor(page);
+  await expect(page.getByText("Active shape: Custom corridor")).toBeVisible();
+
+  await page.getByRole("button", { name: "Reset selected shape" }).click();
+
+  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByLabel("Corridor name")).toHaveCount(0);
 });
 
 test("clamps selected target planning text fields to persisted schema limits", async ({ page }) => {
@@ -412,4 +476,16 @@ async function readCorridorPriority(page: Page, corridorId: string) {
     },
     { key: mapStateStorageKey, id: corridorId },
   );
+}
+
+async function clickPolkCorridor(page: Page) {
+  const mapPaths = page.locator(".leaflet-overlay-pane svg path");
+  await expect(mapPaths).toHaveCount(13);
+  await mapPaths.nth(9).click({ force: true });
+}
+
+async function clickCustomCorridor(page: Page) {
+  const mapPaths = page.locator(".leaflet-overlay-pane svg path");
+  await expect(mapPaths).toHaveCount(14);
+  await mapPaths.nth(10).click({ force: true });
 }

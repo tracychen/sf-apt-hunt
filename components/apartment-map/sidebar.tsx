@@ -14,6 +14,7 @@ import type {
 } from "@/components/apartment-map/leaflet-map";
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { AssistantPanel } from "@/components/apartment-map/assistant-panel";
+import { CorridorEditor } from "@/components/apartment-map/corridor-editor";
 import { ListingResults } from "@/components/apartment-map/listing-results";
 import { ProposalReviewDialog } from "@/components/apartment-map/proposal-review-dialog";
 import { TargetEditor } from "@/components/apartment-map/target-editor";
@@ -66,6 +67,10 @@ export function Sidebar({
   canResetSelectedShapes: boolean;
 }) {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const selectedCorridor =
+    selectedEntity?.kind === "corridor"
+      ? mapState.corridors.find((corridor) => corridor.id === selectedEntity.id) ?? null
+      : null;
   const selectedTarget =
     selectedEntity?.kind === "target"
       ? mapState.targets.find((target) => target.id === selectedEntity.id) ?? null
@@ -140,6 +145,14 @@ export function Sidebar({
           <TargetEditor
             mapState={mapState}
             target={selectedTarget}
+            onMapStateChange={onMapStateChange}
+          />
+        ) : null}
+
+        {selectedCorridor ? (
+          <CorridorEditor
+            corridor={selectedCorridor}
+            mapState={mapState}
             onMapStateChange={onMapStateChange}
           />
         ) : null}

@@ -188,6 +188,13 @@ export function ApartmentMapApp() {
     }
 
     if (
+      selectedEntity.kind === "corridor" &&
+      !seedMapState.corridors.some((corridor) => corridor.id === selectedEntity.id)
+    ) {
+      setSelectedEntity(null);
+    }
+
+    if (
       selectedEntity.kind === "target" &&
       !seedMapState.targets.some((target) => target.id === selectedEntity.id)
     ) {
