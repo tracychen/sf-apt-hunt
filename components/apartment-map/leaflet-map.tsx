@@ -554,6 +554,11 @@ export function LeafletMap({
               positions={corridor.geometry.coordinates.map(toLatLng)}
               pathOptions={{
                 ...pathOptions,
+                className: [
+                  "target-corridor",
+                  `target-corridor-${corridor.id}`,
+                  pathOptions.className,
+                ].filter(Boolean).join(" "),
                 weight: selected ? (pathOptions.weight ?? 4) + 2 : pathOptions.weight,
               }}
               onSelect={() => onSelectedEntityChange({ kind: "corridor", id: corridor.id })}

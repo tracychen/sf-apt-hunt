@@ -526,13 +526,9 @@ async function readCorridorPriority(page: Page, corridorId: string) {
 }
 
 async function clickPolkCorridor(page: Page) {
-  const mapPaths = page.locator(".leaflet-overlay-pane svg path");
-  await expect(mapPaths).toHaveCount(13);
-  await mapPaths.nth(9).click({ force: true });
+  await page.locator(".target-corridor-polk").click({ force: true });
 }
 
 async function clickCustomCorridor(page: Page) {
-  const mapPaths = page.locator(".leaflet-overlay-pane svg path");
-  await expect(mapPaths).toHaveCount(14);
-  await mapPaths.nth(10).click({ force: true });
+  await page.locator(".target-corridor-custom-corridor").click({ force: true });
 }
