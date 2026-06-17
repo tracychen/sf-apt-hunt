@@ -60,6 +60,8 @@ Common missing information can include:
 
 The first version should not include `suggestedReplies`. Freeform follow-up chat is enough.
 
+`needsMoreInfo` and `noAction` are successful assistant responses, not errors. The client should show `assistantMessage` in the assistant panel, keep the input enabled, and avoid opening the proposal review dialog. For follow-up answers, the client should send enough recent conversation context for the model to connect the user's answer to the original request. The first implementation can keep this to the current pending clarification plus the latest user answer; it does not need a full persistent chat transcript.
+
 ## Research Flow
 
 When the route decides a prompt needs outside knowledge, it calls OpenAI with hosted `web_search` and strict structured output. The model returns discovered map entities with source evidence and enough fields for deterministic enrichment.
@@ -70,12 +72,12 @@ The route then enriches and validates those candidates before returning a normal
 2. The server validates the request body and sends map context plus the user message to OpenAI.
 3. OpenAI either asks for more information, returns no action, or returns researched target and corridor candidates.
 4. The server geocodes target candidates and corridor waypoints where needed.
-5. The server validates bounds, point counts, duplicate IDs, caps, and source metadata.
+5. The server validates bounds, point counts, real-world duplicates, caps, and source metadata.
 6. The server converts accepted candidates into `MapPatchProposal.operations`.
 7. The client shows the existing proposal review dialog.
 8. Applying the proposal continues through `/api/map/apply-proposal`.
 
-The map assistant route should not trust model-supplied coordinates for pins. It may accept model-supplied route geometry only when the model identifies a credible geometry source and the geometry passes deterministic validation.
+The map assistant route should not trust model-supplied coordinates for pins. It may use model-supplied route geometry only as approximate geometry unless deterministic code fetched or parsed a credible geometry source. Bounds and point-count validation prove a line is safe to render, but they do not prove the line matches the real route.
 
 ## Target Pin Research
 
@@ -92,6 +94,15 @@ For place-like requests, the model returns target candidates with:
 - caveats
 
 The server geocodes each candidate using a shared server-side geocoding helper. Browser nonce authorization is not needed because the map assistant route runs server-side, but the same production safety expectations still apply: Google key stays server-only, failures are redacted, results are bounds-checked, and production rate limiting must fail closed when Redis configuration is missing.
+
+Researched geocoding must be tightly capped because this is a public anonymous app using a server-owned Google key:
+
+- At most 20 target candidates per request.
+- At most 5 corridor candidates per request.
+- At most 25 total Google geocode attempts per map-assistant request, including target addresses and corridor waypoints.
+- Each geocode attempt is charged against durable per-IP and per-session fixed-window counters before calling Google.
+- Production must require Redis-backed rate limiting for researched geocoding, using separate keys from listing geocoding, such as `geocode:map-research:ip:<hash>` and `geocode:map-research:session:<hash>`.
+- The initial researched-geocoding quota should be no more than 50 attempts per IP per hour and 50 attempts per session per hour. Raising that limit should be an explicit product decision.
 
 Successful geocodes become `addTarget` operations. Failed, duplicate, or out-of-bounds results are excluded from operations and summarized in `researchSummary`.
 
@@ -113,11 +124,11 @@ Corridor candidates need ordered geometry, not just one geocoded point. The mode
 The server should build corridors using these source-quality tiers:
 
 1. **Official geometry**
-   Use GTFS shapes, agency GeoJSON, encoded polylines, or another source that provides route geometry.
+   Use GTFS shapes, agency GeoJSON, KML, encoded polylines, or another source that provides route geometry. A corridor can be labeled `official` only when deterministic code fetches or parses the cited geometry source, or when the source is a trusted static feed bundled/configured by the app. A model-generated LineString with a citation is not enough to call the geometry official.
 2. **From stops or waypoints**
-   Use ordered official stops or geocoded ordered waypoints to create a simplified LineString.
+   Use ordered official stops or geocoded ordered waypoints to create a simplified LineString. This tier is appropriate when the model provides ordered stop names or waypoint geocode queries with source evidence and the server geocodes the points.
 3. **Approximate from description**
-   Use route text, endpoints, and major turns to create a simplified editable corridor.
+   Use route text, endpoints, and major turns to create a simplified editable corridor. Model-supplied raw coordinates that cannot be tied to a deterministically parsed geometry source belong in this tier, even if the source itself is official.
 
 Approximate corridors are allowed because this app uses corridors as planning objects, not navigation-grade directions. Low-confidence corridors must be clearly labeled in review and remain easy to edit after apply.
 
@@ -151,7 +162,43 @@ Do not add a full research-results browser in v1. The proposal review should sta
 
 The implementation must keep TypeScript types, Zod schemas, and raw OpenAI JSON schemas aligned.
 
-Add a researched assistant response schema for `needsMoreInfo`, `proposal`, and `noAction`. The existing `MapPatchProposal` schema can remain the apply contract, but proposal review may need a companion `researchSummary` object that is shown in the UI and not persisted into map state.
+Add a researched assistant response schema for `needsMoreInfo`, `proposal`, and `noAction`. The existing `MapPatchProposal` schema can remain the apply contract, but proposal review needs a companion `researchSummary` object that is shown in the UI and not persisted into map state.
+
+`ResearchSummary` should be concrete and correlate metadata to proposed operations by proposed entity ID:
+
+```ts
+type ResearchSummary = {
+  items: ResearchSummaryItem[];
+  exclusions: ResearchExclusion[];
+  caveats: string[];
+};
+
+type ResearchSummaryItem = {
+  entityId: string;
+  operationType: "addTarget" | "addCorridor";
+  label: string;
+  source: SourceCitation;
+  confidence: "high" | "medium" | "low";
+  geometryQuality?: "official" | "fromStops" | "approximate";
+  geocodePrecision?: "exact" | "approximate";
+  caveats: string[];
+};
+
+type ResearchExclusion = {
+  label: string;
+  reason:
+    | "duplicate"
+    | "out_of_bounds"
+    | "geocode_failed"
+    | "missing_source"
+    | "invalid_geometry"
+    | "over_cap";
+  source?: SourceCitation;
+  caveats: string[];
+};
+```
+
+Each `ResearchSummaryItem.entityId` must match the `target.id` or `corridor.id` in the corresponding `addTarget` or `addCorridor` operation. If an operation has no matching summary item, the response should fail validation. If a summary item references no proposed operation, the response should fail validation.
 
 The `MapPatchProposal` operations should remain the actual mutation language:
 
@@ -161,12 +208,34 @@ The `MapPatchProposal` operations should remain the actual mutation language:
 
 Research metadata should not be required by `/api/map/apply-proposal`; apply should continue validating only the final map mutation contract.
 
+## Duplicate Handling
+
+Duplicate handling must cover real-world duplicates, not only duplicate IDs. The model can generate unique IDs for the same place, so the server should dedupe researched target candidates before creating operations.
+
+Target dedupe should compare:
+
+- proposed IDs across all map entities
+- canonical source URLs
+- normalized address or geocode query text
+- normalized name plus nearby geocoded coordinates
+- existing target coordinates within a small threshold, such as 50 meters, when names or source evidence indicate the same real-world place
+
+Corridor dedupe should compare:
+
+- proposed IDs across all map entities
+- canonical source URLs
+- normalized route or corridor name
+- existing corridor geometry when the proposed line is effectively the same planning route
+
+Duplicates should be excluded from operations and reported in `ResearchSummary.exclusions` with reason `duplicate`.
+
 ## Error Handling
 
 - If web search fails, return `noAction` with a safe assistant message.
 - If geocoding is not configured, return a proposal only for candidates that already have trustworthy validated geometry; otherwise return `noAction` or `needsMoreInfo` with a configuration caveat.
 - If some candidates fail geocoding or validation, return the valid operations plus caveats and excluded-result summary.
 - If every candidate fails validation, return `noAction`.
+- If researched geocoding exceeds per-request or durable quotas, stop before calling Google for over-cap candidates and report those exclusions with reason `over_cap`.
 - Never return raw upstream OpenAI or Google error bodies to the client.
 
 ## Testing
@@ -177,10 +246,13 @@ Route tests should cover:
 - researched target candidates are geocoded and converted to `addTarget`.
 - model-supplied target coordinates are ignored in favor of server geocoding.
 - failed, duplicate, or out-of-bounds target results are excluded with caveats.
+- researched geocoding enforces per-request caps and durable per-IP/per-session rate limits.
 - official corridor geometry is converted to `addCorridor`.
 - ordered waypoints can create a simplified corridor.
 - approximate corridor output is labeled and validated.
+- model-supplied corridor coordinates without a deterministically parsed geometry source are labeled `approximate`, not `official`.
 - invalid or out-of-bounds corridor geometry is rejected.
+- proposal responses fail validation when `researchSummary.items` do not match proposed operation entity IDs.
 - OpenAI structured-output schema stays strict for all new response shapes.
 - Google failures and upstream errors are redacted.
 
@@ -189,7 +261,7 @@ Unit tests should cover:
 - candidate-to-target conversion.
 - candidate-to-corridor conversion for official, waypoint, and approximate tiers.
 - point-count caps and bounds filtering.
-- duplicate target and corridor ID handling.
+- duplicate target and corridor handling by ID, source URL, normalized address/name, coordinate proximity, and route/source identity.
 - research summary generation.
 
 E2E tests should cover:
@@ -197,6 +269,7 @@ E2E tests should cover:
 - a prompt that asks for real-world pins and shows sourced target proposals for review.
 - a prompt that asks for a bus route corridor and shows geometry quality in review.
 - an underspecified researched prompt that produces a chat follow-up instead of a bad proposal.
+- a `noAction` researched response displays as an assistant message, not as a failed request.
 
 ## Out Of Scope
 
