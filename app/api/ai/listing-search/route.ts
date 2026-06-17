@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { listingSearchResponseSchema } from "@/lib/domain/schemas";
+import { listingSearchFiltersSchema, listingSearchResponseSchema } from "@/lib/domain/schemas";
 import { createGeocodeAuthorization } from "@/lib/server/geocode-auth";
 import {
   createOpenAiResponse,
@@ -10,10 +10,21 @@ import {
 import { redactSecrets } from "@/lib/server/redaction";
 import { RequestBodyTooLargeError, readJsonRequestBody } from "@/lib/server/request-body";
 
+const priorityRequestSchema = z.enum(["high", "medium", "low"]);
+const scoreRequestSchema = z.union([
+  z.literal(1),
+  z.literal(2),
+  z.literal(3),
+  z.literal(4),
+  z.literal(5),
+]);
+const coordinateRequestSchema = z.tuple([z.number(), z.number()]);
+const noteRequestSchema = z.string().max(2_000);
+
 const listingSearchRequestSchema = z
   .object({
     query: z.string().min(1).max(4_000),
-    filters: z.record(z.string(), z.unknown()).optional(),
+    filters: listingSearchFiltersSchema.strict().optional(),
     selectedContext: z
       .object({
         zones: z
@@ -21,7 +32,11 @@ const listingSearchRequestSchema = z
             z.object({
               id: z.string().min(1).max(128),
               name: z.string().min(1).max(160),
-            }),
+              fitnessScore: scoreRequestSchema,
+              affordabilityScore: scoreRequestSchema,
+              carFreeScore: scoreRequestSchema,
+              notes: z.array(noteRequestSchema).max(50),
+            }).strict(),
           )
           .max(100)
           .optional(),
@@ -30,10 +45,34 @@ const listingSearchRequestSchema = z
             z.object({
               id: z.string().min(1).max(128),
               name: z.string().min(1).max(160),
-              priority: z.enum(["high", "medium", "low"]),
-            }),
+              priority: priorityRequestSchema,
+              tags: z
+                .array(z.enum(["fitness", "rent", "transit", "safety", "short-term"]))
+                .max(5),
+              notes: z.array(noteRequestSchema).max(50),
+            }).strict(),
           )
           .max(100)
+          .optional(),
+        targets: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(128),
+              name: z.string().min(1).max(160),
+              purpose: z.string().min(1).max(2_000),
+              coordinates: coordinateRequestSchema,
+              priority: priorityRequestSchema,
+              influence: z.enum(["positive", "negative", "neutral"]),
+              radiusMinutes: z.union([
+                z.literal(5),
+                z.literal(10),
+                z.literal(15),
+                z.literal(20),
+              ]),
+              notes: z.array(noteRequestSchema).max(50),
+            }).strict(),
+          )
+          .max(200)
           .optional(),
       })
       .strict()
@@ -116,6 +155,7 @@ const listingSearchJsonSchema = {
 
 const GEOCODE_AUTHORIZATION_TTL_SECONDS = 10 * 60;
 const MAX_AUTHORIZED_GEOCODE_CANDIDATES = 10;
+const MAX_CANDIDATE_ID_LENGTH = 128;
 const MAX_LISTING_SEARCH_REQUEST_BYTES = 256 * 1024;
 
 export async function POST(request: Request) {
@@ -141,14 +181,14 @@ export async function POST(request: Request) {
           {
             role: "developer",
             content:
-              "Search the current web for San Francisco apartment listing candidates. Return only structured JSON. Preserve source summaries, citations, candidate citations, caveats, and whyItFits. Do not invent exact coordinates; provide geocodeQuery only when there is enough listing location text. Always set geocodeAuthorization to null.",
+              "Search the current web for San Francisco apartment listing candidates. Return only structured JSON. Preserve source summaries, citations, candidate citations, caveats, and whyItFits. Do not invent exact coordinates; provide geocodeQuery only when there is enough listing location text. Always set geocodeAuthorization to null. Target coordinates in selectedContext use [longitude, latitude]. Use them only as planning context; do not copy them as listing coordinates.",
           },
           {
             role: "user",
             content: JSON.stringify({
               query: body.query,
               filters: body.filters ?? {},
-              selectedContext: body.selectedContext ?? { zones: [], corridors: [] },
+              selectedContext: body.selectedContext ?? { zones: [], corridors: [], targets: [] },
             }),
           },
         ],
@@ -214,15 +254,47 @@ export async function POST(request: Request) {
 function sanitizeListingSearchResponse(
   response: z.infer<typeof listingSearchResponseSchema>,
 ) {
+  const usedCandidateIds = new Set<string>();
+
   return {
     ...response,
-    candidates: response.candidates.map((candidate) => ({
-      ...candidate,
-      coordinates: null,
-      geocodeStatus: "not_attempted" as const,
-      markerPrecision: "none" as const,
-    })),
+    candidates: response.candidates.map((candidate, index) => {
+      const id = makeUniqueCandidateId(candidate.id, index, usedCandidateIds);
+      usedCandidateIds.add(id);
+
+      return {
+        ...candidate,
+        id,
+        coordinates: null,
+        geocodeStatus: "not_attempted" as const,
+        markerPrecision: "none" as const,
+      };
+    }),
   };
+}
+
+function makeUniqueCandidateId(id: string, index: number, usedCandidateIds: Set<string>) {
+  if (!usedCandidateIds.has(id)) {
+    return id;
+  }
+
+  const preferredId = appendCandidateIdSuffix(id, `-${index + 1}`);
+  if (!usedCandidateIds.has(preferredId)) {
+    return preferredId;
+  }
+
+  let fallbackIndex = index + 1;
+  while (true) {
+    const fallbackId = appendCandidateIdSuffix("candidate", `-${fallbackIndex}`);
+    if (!usedCandidateIds.has(fallbackId)) {
+      return fallbackId;
+    }
+    fallbackIndex += 1;
+  }
+}
+
+function appendCandidateIdSuffix(id: string, suffix: string) {
+  return `${id.slice(0, MAX_CANDIDATE_ID_LENGTH - suffix.length)}${suffix}`;
 }
 
 function mintGeocodeAuthorization(

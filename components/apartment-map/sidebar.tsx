@@ -3,7 +3,8 @@
 import { useState } from "react";
 
 import type {
-  ListingCandidate,
+  ListingDisplayCandidate,
+  ListingSearchFilters,
   ListingSearchResponse,
   MapPatchProposal,
   MapState,
@@ -31,9 +32,12 @@ export function Sidebar({
   listings,
   listingSearchMeta,
   proposal,
+  activeListingSearchRequestId,
   onApiKeyChange,
   onMapStateChange,
   onVisibleLayersChange,
+  onListingSearchStart,
+  isListingSearchRequestCurrent,
   onListingSearchResponse,
   onProposalChange,
   onApplyProposal,
@@ -50,13 +54,19 @@ export function Sidebar({
   selectedEntity: SelectedMapEntity;
   visibleLayers: VisibleMapLayers;
   selectedZoneIds: string[];
-  listings: ListingCandidate[];
+  listings: ListingDisplayCandidate[];
   listingSearchMeta: Pick<ListingSearchResponse, "sourceSummary" | "citations" | "caveats"> | null;
   proposal: MapPatchProposal | null;
+  activeListingSearchRequestId: number;
   onApiKeyChange: (key: string | null, remembered: boolean) => void;
   onMapStateChange: (state: MapState) => void;
   onVisibleLayersChange: (layers: VisibleMapLayers) => void;
-  onListingSearchResponse: (response: ListingSearchResponse) => void;
+  onListingSearchStart: () => number;
+  isListingSearchRequestCurrent: (requestId: number) => boolean;
+  onListingSearchResponse: (
+    response: ListingSearchResponse,
+    request: { query: string; filters: ListingSearchFilters; requestId: number },
+  ) => boolean;
   onProposalChange: (proposal: MapPatchProposal | null) => void;
   onApplyProposal: (state: MapState) => void;
   onRejectProposal: () => void;
@@ -166,7 +176,10 @@ export function Sidebar({
           apiKey={apiKey}
           mapState={mapState}
           selectedZoneIds={selectedZoneIds}
+          activeListingSearchRequestId={activeListingSearchRequestId}
           onProposalChange={onProposalChange}
+          onListingSearchStart={onListingSearchStart}
+          isListingSearchRequestCurrent={isListingSearchRequestCurrent}
           onListingSearchResponse={onListingSearchResponse}
         />
         <ListingResults

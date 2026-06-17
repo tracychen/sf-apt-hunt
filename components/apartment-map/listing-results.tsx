@@ -1,6 +1,6 @@
 "use client";
 
-import type { ListingCandidate, SourceCitation } from "@/lib/domain/types";
+import type { ListingDisplayCandidate, SourceCitation } from "@/lib/domain/types";
 
 function formatPrice(priceMonthly: number | null) {
   if (priceMonthly === null) {
@@ -14,7 +14,7 @@ function formatPrice(priceMonthly: number | null) {
   }).format(priceMonthly);
 }
 
-function formatBeds(beds: ListingCandidate["beds"]) {
+function formatBeds(beds: ListingDisplayCandidate["beds"]) {
   if (beds === "1br") {
     return "1BR";
   }
@@ -26,7 +26,7 @@ function formatBeds(beds: ListingCandidate["beds"]) {
   return "Beds unknown";
 }
 
-function formatPinStatus(listing: ListingCandidate) {
+function formatPinStatus(listing: ListingDisplayCandidate) {
   if (listing.coordinates) {
     return listing.markerPrecision === "exact" ? "Exact pin" : "Approximate pin";
   }
@@ -48,7 +48,7 @@ export function ListingResults({
   sourceCitations,
   sourceSummary,
 }: {
-  listings: ListingCandidate[];
+  listings: ListingDisplayCandidate[];
   sourceSummary: string | null;
   sourceCitations: SourceCitation[];
   sourceCaveats: string[];
@@ -117,11 +117,26 @@ export function ListingResults({
                 <span>{formatPrice(listing.priceMonthly)}</span>
                 <span>{formatBeds(listing.beds)}</span>
                 <span>{listing.neighborhoodGuess}</span>
+                <span>{listing.leadStatus === "new" ? "New lead" : "Seen before"}</span>
+                <span>Planning score {listing.planningScore}/5</span>
                 <span>Fit {listing.fitScore}/5</span>
                 <span>{formatPinStatus(listing)}</span>
               </div>
 
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{listing.whyItFits}</p>
+
+              {listing.planningSignals.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {listing.planningSignals.map((signal) => (
+                    <span
+                      key={`${listing.id}-planning-signal-${signal}`}
+                      className="border border-border bg-muted px-1.5 py-0.5 text-[11px] leading-4 text-muted-foreground"
+                    >
+                      {signal}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
 
               {listing.caveats.length > 0 ? (
                 <ul className="mt-2 space-y-1 text-[11px] leading-4 text-muted-foreground">

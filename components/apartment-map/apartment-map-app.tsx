@@ -1,17 +1,29 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
   Coordinate,
   GeocodeAuthorization,
   ListingCandidate,
+  ListingDisplayCandidate,
+  ListingLead,
+  ListingSearchFilters,
   ListingSearchResponse,
   MapPatchProposal,
   MapState,
 } from "@/lib/domain/types";
+import {
+  compareListingDisplayCandidates,
+  scoreListingLead,
+} from "@/lib/map/listing-planning-score";
 import { seedMapState } from "@/lib/map/seed-data";
 import { loadStoredOpenAiKey } from "@/lib/storage/api-key-storage";
+import {
+  clearListingLedger,
+  mergeListingCandidatesIntoLedger,
+  updateListingLeadCandidate,
+} from "@/lib/storage/listing-ledger-storage";
 import {
   canonicalizeGeocodeCacheQuery,
   clearMapState,
@@ -29,7 +41,7 @@ import { Sidebar } from "@/components/apartment-map/sidebar";
 
 type MapPanelProps = {
   mapState: MapState;
-  listings: ListingCandidate[];
+  listings: ListingDisplayCandidate[];
   selectedEntity: SelectedMapEntity;
   selectedZoneIds: string[];
   visibleLayers: VisibleMapLayers;
@@ -39,6 +51,12 @@ type MapPanelProps = {
 };
 
 type ListingSearchMeta = Pick<ListingSearchResponse, "sourceSummary" | "citations" | "caveats"> | null;
+
+type ListingSearchRequest = {
+  query: string;
+  filters: ListingSearchFilters;
+  requestId: number;
+};
 
 const defaultVisibleLayers: VisibleMapLayers = {
   zones: true,
@@ -114,12 +132,27 @@ export function ApartmentMapApp() {
   const [selectedZoneIds, setSelectedZoneIds] = useState<string[]>([]);
   const [visibleLayers, setVisibleLayers] = useState<VisibleMapLayers>(defaultVisibleLayers);
   const [proposal, setProposal] = useState<MapPatchProposal | null>(null);
-  const [listings, setListings] = useState<ListingCandidate[]>([]);
+  const [listingLeads, setListingLeads] = useState<ListingLead[]>([]);
+  const [activeListingFilters, setActiveListingFilters] = useState<ListingSearchFilters | null>(null);
   const [listingSearchMeta, setListingSearchMeta] = useState<ListingSearchMeta>(null);
+  const [listingSearchRunId, setListingSearchRunId] = useState(0);
   const geocodeRunIdRef = useRef(0);
+  const listingSearchRunIdRef = useRef(0);
   const geocodeAbortRef = useRef<AbortController | null>(null);
   const mapState = mapHistory.current;
   const canUndo = mapHistory.history.length > 0;
+  const listings = useMemo(
+    () =>
+      activeListingFilters
+        ? scoreAndSortListingLeads({
+            leads: listingLeads,
+            filters: activeListingFilters,
+            mapState,
+            selectedZoneIds,
+          })
+        : [],
+    [activeListingFilters, listingLeads, mapState, selectedZoneIds],
+  );
 
   useEffect(() => {
     const storedMapState = loadMapState();
@@ -167,10 +200,17 @@ export function ApartmentMapApp() {
   }, [canUndo, undoLastEdit]);
 
   function resetLocalMap() {
+    advanceListingSearchRun();
+    geocodeRunIdRef.current += 1;
+    geocodeAbortRef.current?.abort();
     dispatchMapHistory({ type: "reset" });
     setSelectedEntity(null);
     setSelectedZoneIds([]);
     setProposal(null);
+    setListingLeads([]);
+    setActiveListingFilters(null);
+    setListingSearchMeta(null);
+    clearListingLedger();
     clearMapState();
   }
 
@@ -212,7 +252,32 @@ export function ApartmentMapApp() {
     setProposal(null);
   }
 
-  function handleListingSearchResponse(response: ListingSearchResponse) {
+  function advanceListingSearchRun() {
+    const nextRunId = listingSearchRunIdRef.current + 1;
+    listingSearchRunIdRef.current = nextRunId;
+    setListingSearchRunId(nextRunId);
+    return nextRunId;
+  }
+
+  function beginListingSearch() {
+    const nextRunId = advanceListingSearchRun();
+    geocodeRunIdRef.current += 1;
+    geocodeAbortRef.current?.abort();
+    return nextRunId;
+  }
+
+  function isListingSearchRequestCurrent(requestId: number) {
+    return requestId === listingSearchRunIdRef.current;
+  }
+
+  function handleListingSearchResponse(
+    response: ListingSearchResponse,
+    request: ListingSearchRequest,
+  ) {
+    if (request.requestId !== listingSearchRunIdRef.current) {
+      return false;
+    }
+
     const nextRunId = geocodeRunIdRef.current + 1;
     geocodeRunIdRef.current = nextRunId;
     // Cancel any in-flight geocoding from a prior search so superseded requests
@@ -225,25 +290,29 @@ export function ApartmentMapApp() {
       citations: response.citations,
       caveats: response.caveats,
     });
-    setListings(response.candidates);
 
-    const cachedResult = applyCachedGeocodeEntries(response.candidates);
-    if (cachedResult.changed) {
-      setListings(cachedResult.candidates);
-    }
+    const mergedResult = mergeListingCandidatesIntoLedger({
+      candidates: response.candidates,
+      query: request.query,
+      now: new Date().toISOString(),
+    });
+    const cachedResult = applyCachedGeocodeEntries(mergedResult.leads);
+
+    setActiveListingFilters(request.filters);
+    setListingLeads(cachedResult.leads);
 
     if (!response.geocodeAuthorization) {
-      return;
+      return true;
     }
 
     const candidatesToGeocode = selectCandidatesToGeocode(
       response.geocodeAuthorization,
-      response.candidates,
+      cachedResult.leads.map((lead) => lead.candidate),
       cachedResult.cachedCandidateIds,
     );
 
     if (candidatesToGeocode.length === 0) {
-      return;
+      return true;
     }
 
     void geocodeListingCandidates({
@@ -255,13 +324,28 @@ export function ApartmentMapApp() {
           return;
         }
 
-        setListings((currentListings) =>
-          currentListings.map((listing) =>
-            listing.id === candidateId ? { ...listing, ...update } : listing,
-          ),
+        setListingLeads((currentLeads) =>
+          currentLeads.map((lead) => {
+            if (lead.candidate.id !== candidateId) {
+              return lead;
+            }
+
+            const updatedCandidate = {
+              ...lead.candidate,
+              ...update,
+            };
+            const updatedLead = updateListingLeadCandidate(lead.canonicalUrl, updatedCandidate);
+
+            return updatedLead ?? {
+              ...lead,
+              candidate: updatedCandidate,
+            };
+          }),
         );
       },
     });
+
+    return true;
   }
 
   return (
@@ -288,9 +372,12 @@ export function ApartmentMapApp() {
         listings={listings}
         listingSearchMeta={listingSearchMeta}
         proposal={proposal}
+        activeListingSearchRequestId={listingSearchRunId}
         onApiKeyChange={updateApiKey}
         onMapStateChange={updateMapState}
         onVisibleLayersChange={setVisibleLayers}
+        onListingSearchStart={beginListingSearch}
+        isListingSearchRequestCurrent={isListingSearchRequestCurrent}
         onListingSearchResponse={handleListingSearchResponse}
         onProposalChange={setProposal}
         onApplyProposal={applyReviewedProposal}
@@ -372,30 +459,47 @@ type GeocodeListingCandidateOptions = {
   onResult: (candidateId: string, update: Partial<ListingCandidate>) => void;
 };
 
-function applyCachedGeocodeEntries(candidates: ListingCandidate[]) {
+type ScoreAndSortListingLeadsOptions = {
+  leads: ListingLead[];
+  filters: ListingSearchFilters;
+  mapState: MapState;
+  selectedZoneIds: string[];
+};
+
+function scoreAndSortListingLeads({
+  leads,
+  filters,
+  mapState,
+  selectedZoneIds,
+}: ScoreAndSortListingLeadsOptions) {
+  return leads
+    .map((lead) => scoreListingLead({ lead, filters, mapState, selectedZoneIds }))
+    .sort(compareListingDisplayCandidates);
+}
+
+function applyCachedGeocodeEntries(leads: ListingLead[]) {
   const cache = loadGeocodeCache();
   const cachedCandidateIds = new Set<string>();
-  let changed = false;
-  const cachedCandidates = candidates.map((candidate) => {
-    if (!candidate.geocodeQuery) {
-      return candidate;
+  const cachedLeads = leads.map((lead) => {
+    if (!lead.candidate.geocodeQuery) {
+      return lead;
     }
 
-    const cacheEntry = cache[canonicalizeGeocodeCacheQuery(candidate.geocodeQuery)];
+    const cacheEntry = cache[canonicalizeGeocodeCacheQuery(lead.candidate.geocodeQuery)];
     if (!cacheEntry) {
-      return candidate;
+      return lead;
     }
 
-    cachedCandidateIds.add(candidate.id);
-    const cachedCandidate = applyCachedGeocodeEntry(candidate, cacheEntry);
-    changed = changed || cachedCandidate !== candidate;
-    return cachedCandidate;
+    cachedCandidateIds.add(lead.candidate.id);
+    const cachedCandidate = applyCachedGeocodeEntry(lead.candidate, cacheEntry);
+    const cachedLead = updateListingLeadCandidate(lead.canonicalUrl, cachedCandidate);
+
+    return cachedLead ?? { ...lead, candidate: cachedCandidate };
   });
 
   return {
     cachedCandidateIds,
-    candidates: cachedCandidates,
-    changed,
+    leads: cachedLeads,
   };
 }
 

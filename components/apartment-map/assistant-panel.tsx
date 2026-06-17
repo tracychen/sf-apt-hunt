@@ -4,39 +4,39 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { listingSearchResponseSchema, mapPatchProposalSchema } from "@/lib/domain/schemas";
 import type {
+  ListingSearchFilters,
   ListingSearchResponse,
   MapPatchProposal,
   MapState,
 } from "@/lib/domain/types";
 import { Button } from "@/components/ui/button";
 
-type AssistantFilters = {
-  maxBudget: number | null;
-  beds: "any" | "studio" | "1br";
-  timing: string;
-  shortTerm: boolean;
-  furnished: boolean;
-};
-
 export function AssistantPanel(props: {
   apiKey: string | null;
   mapState: MapState;
   selectedZoneIds: string[];
+  activeListingSearchRequestId: number;
   onProposalChange: (proposal: MapPatchProposal | null) => void;
-  onListingSearchResponse: (response: ListingSearchResponse) => void;
+  onListingSearchStart: () => number;
+  isListingSearchRequestCurrent: (requestId: number) => boolean;
+  onListingSearchResponse: (
+    response: ListingSearchResponse,
+    request: { query: string; filters: ListingSearchFilters; requestId: number },
+  ) => boolean;
 }) {
   const { apiKey, mapState, selectedZoneIds } = props;
   const disabled = !apiKey;
   const [message, setMessage] = useState("");
   const [maxBudget, setMaxBudget] = useState("");
-  const [beds, setBeds] = useState<AssistantFilters["beds"]>("any");
+  const [beds, setBeds] = useState<ListingSearchFilters["beds"]>("any");
   const [timing, setTiming] = useState("");
   const [shortTerm, setShortTerm] = useState(false);
   const [furnished, setFurnished] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const activeFilters = useMemo(
+  const [activeListingRequestId, setActiveListingRequestId] = useState<number | null>(null);
+  const activeFilters = useMemo<ListingSearchFilters>(
     () => ({
       maxBudget: parseBudget(maxBudget),
       beds,
@@ -46,11 +46,17 @@ export function AssistantPanel(props: {
     }),
     [beds, furnished, maxBudget, shortTerm, timing],
   );
+  const hasStaleListingRequest =
+    activeListingRequestId !== null &&
+    activeListingRequestId !== props.activeListingSearchRequestId;
+  const isCurrentlySubmitting = isSubmitting && !hasStaleListingRequest;
+  const visibleError = hasStaleListingRequest ? null : error;
+  const visibleStatus = hasStaleListingRequest ? null : status;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!apiKey || isSubmitting) {
+    if (!apiKey || isCurrentlySubmitting) {
       return;
     }
 
@@ -61,6 +67,15 @@ export function AssistantPanel(props: {
     }
 
     const requestKind = isListingSearchPrompt(trimmedMessage) ? "listing" : "map";
+    const listingRequest =
+      requestKind === "listing"
+        ? {
+            query: trimmedMessage,
+            filters: activeFilters,
+            requestId: props.onListingSearchStart(),
+          }
+        : null;
+    setActiveListingRequestId(listingRequest?.requestId ?? null);
     setError(null);
     setStatus(requestKind === "listing" ? "Searching listings..." : "Requesting map proposal...");
     setIsSubmitting(true);
@@ -78,7 +93,7 @@ export function AssistantPanel(props: {
             requestKind === "listing"
               ? {
                   query: trimmedMessage,
-                  filters: activeFilters,
+                  filters: listingRequest?.filters ?? activeFilters,
                   selectedContext: buildSelectedContext(mapState, selectedZoneIds),
                 }
               : {
@@ -102,8 +117,16 @@ export function AssistantPanel(props: {
           throw new Error("Listing search returned an unexpected response.");
         }
 
+        if (!listingRequest || !props.isListingSearchRequestCurrent(listingRequest.requestId)) {
+          return;
+        }
+
         props.onProposalChange(null);
-        props.onListingSearchResponse(listingResponse);
+        const accepted = props.onListingSearchResponse(listingResponse, listingRequest);
+        if (!accepted || !props.isListingSearchRequestCurrent(listingRequest.requestId)) {
+          return;
+        }
+
         setStatus(`${listingResponse.candidates.length} listing candidates returned.`);
         return;
       }
@@ -112,6 +135,10 @@ export function AssistantPanel(props: {
       props.onProposalChange(proposal);
       setStatus(proposal ? "Map proposal ready for review." : "No map changes were proposed.");
     } catch (requestError) {
+      if (listingRequest && !props.isListingSearchRequestCurrent(listingRequest.requestId)) {
+        return;
+      }
+
       setError(
         requestError instanceof Error
           ? requestError.message
@@ -119,7 +146,10 @@ export function AssistantPanel(props: {
       );
       setStatus(null);
     } finally {
-      setIsSubmitting(false);
+      if (!listingRequest || props.isListingSearchRequestCurrent(listingRequest.requestId)) {
+        setActiveListingRequestId(null);
+        setIsSubmitting(false);
+      }
     }
   }
 
@@ -168,7 +198,7 @@ export function AssistantPanel(props: {
             className="mt-1 w-full border border-input bg-background px-2 py-1.5 text-sm font-normal outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/50 disabled:cursor-not-allowed disabled:bg-muted"
             disabled={disabled}
             value={beds}
-            onChange={(event) => setBeds(event.target.value as AssistantFilters["beds"])}
+            onChange={(event) => setBeds(event.target.value as ListingSearchFilters["beds"])}
           >
             <option value="any">Any</option>
             <option value="studio">Studio</option>
@@ -212,9 +242,9 @@ export function AssistantPanel(props: {
         </label>
       </div>
 
-      {error ? (
+      {visibleError ? (
         <p className="mt-3 border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-          {error}
+          {visibleError}
         </p>
       ) : null}
 
@@ -222,10 +252,10 @@ export function AssistantPanel(props: {
         <p className="max-w-52 text-xs text-muted-foreground">
           {disabled
             ? "Save a key to enable assistant requests."
-            : status ?? "Ready to send a request."}
+            : visibleStatus ?? "Ready to send a request."}
         </p>
-        <Button disabled={disabled || isSubmitting} type="submit">
-          {isSubmitting ? "Sending..." : "Send"}
+        <Button disabled={disabled || isCurrentlySubmitting} type="submit">
+          {isCurrentlySubmitting ? "Sending..." : "Send"}
         </Button>
       </div>
     </form>
@@ -241,11 +271,27 @@ function buildSelectedContext(mapState: MapState, selectedZoneIds: string[]) {
       .map((zone) => ({
         id: zone.id,
         name: zone.name,
+        fitnessScore: zone.fitnessScore,
+        affordabilityScore: zone.affordabilityScore,
+        carFreeScore: zone.carFreeScore,
+        notes: zone.notes,
       })),
     corridors: mapState.corridors.map((corridor) => ({
       id: corridor.id,
       name: corridor.name,
       priority: corridor.priority,
+      tags: corridor.tags,
+      notes: corridor.notes,
+    })),
+    targets: mapState.targets.map((target) => ({
+      id: target.id,
+      name: target.name,
+      purpose: target.purpose,
+      coordinates: target.coordinates,
+      priority: target.priority,
+      influence: target.influence,
+      radiusMinutes: target.radiusMinutes,
+      notes: target.notes,
     })),
   };
 }

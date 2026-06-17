@@ -17,7 +17,7 @@ import {
 } from "react-leaflet";
 import type {
   Coordinate,
-  ListingCandidate,
+  ListingDisplayCandidate,
   MapState,
   Priority,
   TargetInfluence,
@@ -39,7 +39,7 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
 type LeafletMapProps = {
   mapState: MapState;
-  listings: ListingCandidate[];
+  listings: ListingDisplayCandidate[];
   selectedEntity: SelectedMapEntity;
   selectedZoneIds: string[];
   visibleLayers: VisibleMapLayers;
@@ -455,7 +455,11 @@ export function LeafletMap({
   const [geomanReady, setGeomanReady] = useState(false);
   const selectedZoneSet = useMemo(() => new Set(selectedZoneIds), [selectedZoneIds]);
   const listingPins = useMemo(
-    () => listings.filter((listing): listing is ListingCandidate & { coordinates: Coordinate } => listing.coordinates !== null),
+    () =>
+      listings.filter(
+        (listing): listing is ListingDisplayCandidate & { coordinates: Coordinate } =>
+          listing.coordinates !== null,
+      ),
     [listings],
   );
   const tileUrl = process.env.NEXT_PUBLIC_TILE_URL ?? DEFAULT_TILE_URL;

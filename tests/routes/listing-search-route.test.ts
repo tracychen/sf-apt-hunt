@@ -67,6 +67,46 @@ describe("POST /api/ai/listing-search", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects unknown or malformed listing search filters", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    for (const filters of [
+      {
+        maxBudget: 3000,
+        beds: "any",
+        timing: "",
+        shortTerm: false,
+        furnished: false,
+        neighborhood: "Marina",
+      },
+      {
+        maxBudget: "3000",
+        beds: "any",
+        timing: "",
+        shortTerm: false,
+        furnished: false,
+      },
+    ]) {
+      const response = await POST(
+        createRequest(
+          {
+            query: "Find furnished studios near Fillmore.",
+            filters,
+          },
+          "Bearer sk-test-listing",
+        ),
+      );
+
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        error: "Invalid listing search request.",
+      });
+      expect(response.status).toBe(400);
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("preserves whyItFits and citations from structured output", async () => {
     const structuredOutput = {
       candidates: [createCandidate(1, "1231 Market St")],
@@ -107,23 +147,55 @@ describe("POST /api/ai/listing-search", () => {
       geocodeAuthorization: null,
     };
     const fetchMock = mockOpenAiResponse({ output_text: JSON.stringify(structuredOutput) });
+    const selectedContext = {
+      zones: [
+        {
+          id: "lower-pac-heights",
+          name: "Lower Pac Heights",
+          fitnessScore: 5,
+          affordabilityScore: 3,
+          carFreeScore: 5,
+          notes: ["Good Fillmore access."],
+        },
+      ],
+      corridors: [
+        {
+          id: "fillmore",
+          name: "Fillmore",
+          priority: "high",
+          tags: ["transit", "rent"],
+          notes: ["Core north-south route."],
+        },
+      ],
+      targets: [
+        {
+          id: "fillmore-california",
+          name: "Fillmore & California",
+          purpose: "favorite block",
+          coordinates: [-122.433, 37.789],
+          priority: "high",
+          influence: "positive",
+          radiusMinutes: 10,
+          notes: ["Use this as the search anchor."],
+        },
+      ],
+    };
 
     const response = await POST(
       createRequest(
         {
           query: "Find furnished studios near Fillmore.",
-          selectedContext: {
-            zones: [{ id: "lower-pac-heights", name: "Lower Pac Heights" }],
-            corridors: [{ id: "fillmore", name: "Fillmore", priority: "high" }],
-          },
+          selectedContext,
         },
         "Bearer sk-test-listing",
       ),
     );
+
+    expect(response.status).toBe(200);
+
     const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     const userMessage = JSON.parse(payload.input[1].content);
 
-    expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       model: "gpt-5.5",
       store: false,
@@ -136,10 +208,30 @@ describe("POST /api/ai/listing-search", () => {
         },
       },
     });
-    expect(userMessage.selectedContext).toEqual({
-      zones: [{ id: "lower-pac-heights", name: "Lower Pac Heights" }],
-      corridors: [{ id: "fillmore", name: "Fillmore", priority: "high" }],
-    });
+    expect(userMessage.selectedContext).toEqual(selectedContext);
+  });
+
+  it("explains selected target coordinate order in the developer prompt", async () => {
+    const structuredOutput = {
+      candidates: [],
+      sourceSummary: "No matching listings were found.",
+      citations: [],
+      caveats: ["Try a broader query."],
+      geocodeAuthorization: null,
+    };
+    const fetchMock = mockOpenAiResponse({ output_text: JSON.stringify(structuredOutput) });
+
+    const response = await POST(
+      createRequest({ query: "Find furnished studios near Fillmore." }, "Bearer sk-test-listing"),
+    );
+
+    expect(response.status).toBe(200);
+
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const developerPrompt = payload.input[0].content;
+
+    expect(developerPrompt).toContain("[longitude, latitude]");
+    expect(developerPrompt.toLowerCase()).toContain("target coordinates");
   });
 
   it("mints geocode authorization for at most 10 geocodeable candidates", async () => {
@@ -172,6 +264,41 @@ describe("POST /api/ai/listing-search", () => {
     expect(body.geocodeAuthorization.allowedQueries).toHaveLength(10);
     expect(body.geocodeAuthorization.allowedQueries.map((query: { candidateId: string }) => query.candidateId))
       .toEqual(Array.from({ length: 10 }, (_, index) => `candidate-${index + 1}`));
+  });
+
+  it("deduplicates model candidate ids before authorizing geocoding", async () => {
+    vi.stubEnv("GEOCODE_NONCE_SECRET", "test-secret");
+    const duplicateId = "candidate-1";
+    const structuredOutput = {
+      candidates: [
+        createCandidate(1, "1231 Fillmore St"),
+        {
+          ...createCandidate(2, "1232 Fillmore St"),
+          id: duplicateId,
+        },
+      ],
+      sourceSummary: "Two sources matched the search.",
+      citations: [],
+      caveats: [],
+      geocodeAuthorization: null,
+    };
+    mockOpenAiResponse({ output_text: JSON.stringify(structuredOutput) });
+
+    const response = await POST(
+      createRequest({ query: "Find studios near Fillmore." }, "Bearer sk-test-listing"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.candidates.map((candidate: { id: string }) => candidate.id)).toEqual([
+      duplicateId,
+      `${duplicateId}-2`,
+    ]);
+    expect(
+      body.geocodeAuthorization.allowedQueries.map(
+        (query: { candidateId: string }) => query.candidateId,
+      ),
+    ).toEqual([duplicateId, `${duplicateId}-2`]);
   });
 
   it("normalizes model-supplied coordinates so only guarded geocoding can create pins", async () => {

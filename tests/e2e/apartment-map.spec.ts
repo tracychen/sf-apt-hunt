@@ -6,6 +6,7 @@ const transparentPng = Buffer.from(
   "base64",
 );
 const mapStateStorageKey = "sf-apt-hunt:map-state:v1";
+const listingLedgerStorageKey = "sf-apt-hunt:listing-ledger:v1";
 const maxTargetNameLength = 160;
 const maxTargetTextLength = 2_000;
 const maxTargetNotes = 50;
@@ -348,7 +349,7 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
     expect(body).toMatchObject({
       query: "Find studio listing under 3000 near Fillmore",
       filters: {
-        maxBudget: null,
+        maxBudget: 3000,
         beds: "any",
         timing: "",
         shortTerm: false,
@@ -357,9 +358,18 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
       selectedContext: {
         zones: [],
         corridors: expect.any(Array),
+        targets: expect.any(Array),
       },
     });
     expect(body.selectedContext.corridors.length).toBeGreaterThan(0);
+    expect(
+      body.selectedContext.targets.some(
+        (target: { purpose?: unknown; coordinates?: unknown; radiusMinutes?: unknown }) =>
+          typeof target.purpose === "string" &&
+          Array.isArray(target.coordinates) &&
+          typeof target.radiusMinutes === "number",
+      ),
+    ).toBe(true);
 
     await route.fulfill({
       status: 200,
@@ -443,6 +453,7 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
   await page.getByRole("button", { name: "Add OpenAI key" }).click();
   await page.getByLabel("OpenAI API key").fill("sk-test");
   await page.getByRole("button", { name: "Save key" }).click();
+  await page.getByLabel("Budget").fill("3000");
   await page.getByLabel("Ask the assistant").fill("Find studio listing under 3000 near Fillmore");
   await page.getByRole("button", { name: "Send" }).click();
 
@@ -452,7 +463,277 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
   await expect(page.getByRole("link", { name: "Listing 1" }).first()).toBeVisible();
   await expect(page.getByText("Exact pin")).toBeVisible();
   await expect(page.getByText("1 listing pin.")).toBeVisible();
+  await expect(page.getByText("New lead")).toBeVisible();
+  await expect(page.getByText("Planning score 5/5")).toBeVisible();
+  await expect(page.getByText("Within budget")).toBeVisible();
   expect(geocodeSessionHeader).toBeTruthy();
+});
+
+test("rescores visible listing cards after map context changes without a new search", async ({ page }) => {
+  let listingSearchRequests = 0;
+
+  await page.route("**/api/ai/listing-search", async (route) => {
+    listingSearchRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        candidates: [
+          {
+            id: "listing-context-rescore",
+            title: "Fillmore Context Studio",
+            url: "https://example.com/listings/context-rescore",
+            sourceDomain: "example.com",
+            neighborhoodGuess: "Lower Pac Heights",
+            locationText: "Fillmore and California",
+            geocodeQuery: null,
+            locationConfidence: "high",
+            coordinates: [-122.433, 37.789],
+            geocodeStatus: "geocoded_exact",
+            markerPrecision: "exact",
+            priceMonthly: 2800,
+            beds: "studio",
+            shortTermSignal: false,
+            furnishedSignal: false,
+            fitScore: 4,
+            whyItFits: "Under budget near the target corridor.",
+            citations: [
+              {
+                url: "https://example.com/listings/context-rescore",
+                title: "Context Listing",
+                sourceDomain: "example.com",
+              },
+            ],
+            caveats: [],
+          },
+        ],
+        sourceSummary: "One context listing matched.",
+        citations: [
+          {
+            url: "https://example.com/listings/context-rescore",
+            title: "Context Listing",
+            sourceDomain: "example.com",
+          },
+        ],
+        caveats: [],
+        geocodeAuthorization: null,
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await page.getByLabel("Budget").fill("3000");
+  await page.getByLabel("Ask the assistant").fill("Find Fillmore studio listing");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByRole("link", { name: "Fillmore Context Studio" })).toBeVisible();
+  await expect(page.getByText("Planning score 5/5")).toBeVisible();
+  await expect(page.getByText("Near Lower Pac Heights reference point")).toBeVisible();
+
+  await page.getByTitle("Lower Pac Heights reference point · Fillmore & California").click();
+  await page.getByLabel("Target influence").selectOption("negative");
+
+  await expect(page.getByText("Planning score 3/5")).toBeVisible();
+  await expect(page.getByText("Near avoided Lower Pac Heights reference point")).toBeVisible();
+  await expect(page.getByText("Near Lower Pac Heights reference point")).toHaveCount(0);
+  expect(listingSearchRequests).toBe(1);
+});
+
+test("shows a repeated listing URL as seen before after reload", async ({ page }) => {
+  await page.route("**/api/ai/listing-search", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer sk-test");
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        candidates: [
+          {
+            id: "listing-repeat",
+            title: "Repeat Fillmore Studio",
+            url: "https://example.com/listings/repeat?utm_source=agent",
+            sourceDomain: "example.com",
+            neighborhoodGuess: "Lower Pac Heights",
+            locationText: "Fillmore and California",
+            geocodeQuery: "Fillmore and California",
+            locationConfidence: "medium",
+            coordinates: [-122.433, 37.789],
+            geocodeStatus: "geocoded_exact",
+            markerPrecision: "exact",
+            priceMonthly: 2800,
+            beds: "studio",
+            shortTermSignal: false,
+            furnishedSignal: false,
+            fitScore: 4,
+            whyItFits: "Still a strong Fillmore match.",
+            citations: [
+              {
+                url: "https://example.com/listings/repeat?utm_source=agent",
+                title: "Repeat Listing",
+                sourceDomain: "example.com",
+              },
+            ],
+            caveats: [],
+          },
+        ],
+        sourceSummary: "One repeat listing matched.",
+        citations: [
+          {
+            url: "https://example.com/listings/repeat?utm_source=agent",
+            title: "Repeat Listing",
+            sourceDomain: "example.com",
+          },
+        ],
+        caveats: [],
+        geocodeAuthorization: null,
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await page.getByLabel("Ask the assistant").fill("Find repeat Fillmore studio");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByRole("link", { name: "Repeat Fillmore Studio" })).toBeVisible();
+  await expect(page.getByText("New lead")).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByLabel("Ask the assistant")).toBeEnabled();
+  await page.getByLabel("Ask the assistant").fill("Find repeat Fillmore studio");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByRole("link", { name: "Repeat Fillmore Studio" })).toBeVisible();
+  await expect(page.getByText("Seen before")).toBeVisible();
+  await expect(page.getByText("New lead")).toHaveCount(0);
+});
+
+test("ignores a listing search response that resolves after reset", async ({ page }) => {
+  let releaseListingResponse: () => void = () => {};
+  const listingResponseRelease = new Promise<void>((resolve) => {
+    releaseListingResponse = resolve;
+  });
+  let markListingRequestStarted: () => void = () => {};
+  const listingRequestStarted = new Promise<void>((resolve) => {
+    markListingRequestStarted = resolve;
+  });
+
+  await page.route("**/api/ai/listing-search", async (route) => {
+    markListingRequestStarted();
+    await listingResponseRelease;
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        candidates: [
+          {
+            id: "listing-after-reset",
+            title: "Delayed Reset Studio",
+            url: "https://example.com/listings/after-reset",
+            sourceDomain: "example.com",
+            neighborhoodGuess: "Lower Pac Heights",
+            locationText: "Fillmore and California",
+            geocodeQuery: null,
+            locationConfidence: "low",
+            coordinates: null,
+            geocodeStatus: "not_attempted",
+            markerPrecision: "none",
+            priceMonthly: 2800,
+            beds: "studio",
+            shortTermSignal: false,
+            furnishedSignal: false,
+            fitScore: 4,
+            whyItFits: "Should not repopulate after reset.",
+            citations: [
+              {
+                url: "https://example.com/listings/after-reset",
+                title: "Delayed Listing",
+                sourceDomain: "example.com",
+              },
+            ],
+            caveats: [],
+          },
+        ],
+        sourceSummary: "A delayed listing matched.",
+        citations: [
+          {
+            url: "https://example.com/listings/after-reset",
+            title: "Delayed Listing",
+            sourceDomain: "example.com",
+          },
+        ],
+        caveats: [],
+        geocodeAuthorization: null,
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await page.getByLabel("Ask the assistant").fill("Find delayed reset studio");
+  await page.getByRole("button", { name: "Send" }).click();
+  await listingRequestStarted;
+
+  await page.getByRole("button", { name: "Reset local map" }).click();
+  releaseListingResponse();
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+
+  await expect(page.getByRole("link", { name: "Delayed Reset Studio" })).toHaveCount(0);
+  await expect(page.getByText("No listing candidates yet.")).toBeVisible();
+  await expect
+    .poll(() => page.evaluate((key) => window.localStorage.getItem(key), listingLedgerStorageKey))
+    .toBeNull();
+});
+
+test("ignores a listing search failure that resolves after reset", async ({ page }) => {
+  let releaseListingResponse: () => void = () => {};
+  const listingResponseRelease = new Promise<void>((resolve) => {
+    releaseListingResponse = resolve;
+  });
+  let markListingRequestStarted: () => void = () => {};
+  const listingRequestStarted = new Promise<void>((resolve) => {
+    markListingRequestStarted = resolve;
+  });
+
+  await page.route("**/api/ai/listing-search", async (route) => {
+    markListingRequestStarted();
+    await listingResponseRelease;
+
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: false,
+        error: "Delayed listing search failure.",
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await page.getByLabel("Ask the assistant").fill("Find delayed failing listing");
+  await page.getByRole("button", { name: "Send" }).click();
+  await listingRequestStarted;
+
+  await page.getByRole("button", { name: "Reset local map" }).click();
+  releaseListingResponse();
+
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+  await expect(
+    page.getByText("Listing search could not be completed. Try again with a narrower request."),
+  ).toHaveCount(0);
+  await expect(page.getByText("Ready to send a request.")).toBeVisible();
+  await expect(page.getByText("No listing candidates yet.")).toBeVisible();
 });
 
 test("undoes applied map changes with Ctrl+Z or Cmd+Z", async ({ page }) => {

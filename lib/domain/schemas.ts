@@ -4,6 +4,7 @@ import type {
   GeocodeAuthorization,
   LineStringGeometry,
   ListingCandidate,
+  ListingLead,
   ListingSearchResponse,
   MapPatchProposal,
   MapState,
@@ -65,6 +66,11 @@ const requiredTextSchema = z.string().min(1).max(MAX_TEXT_LENGTH);
 const longTextSchema = z.string().max(MAX_LONG_TEXT_LENGTH);
 const requiredLongTextSchema = z.string().min(1).max(MAX_LONG_TEXT_LENGTH);
 const urlSchema = z.string().url({ protocol: /^https?$/ }).max(MAX_URL_LENGTH);
+const listingCanonicalKeySchema = z
+  .string()
+  .min(1)
+  .max(MAX_URL_LENGTH)
+  .refine((value) => value === value.trim(), "Listing canonical key must be trimmed.");
 const geocodeAuthNonceSchema = z.string().min(1).max(MAX_GEOCODE_AUTH_NONCE_LENGTH);
 const notesSchema = z.array(textSchema).max(MAX_NOTES);
 
@@ -130,7 +136,7 @@ export const geocodeAuthorizationSchema: z.ZodType<GeocodeAuthorization> = z.obj
   ).max(MAX_ALLOWED_GEOCODE_QUERIES),
 });
 
-export const listingCandidateSchema: z.ZodType<ListingCandidate> = z.object({
+const listingCandidateShape = {
   id: idSchema,
   title: nameSchema,
   url: urlSchema,
@@ -156,6 +162,34 @@ export const listingCandidateSchema: z.ZodType<ListingCandidate> = z.object({
   whyItFits: requiredTextSchema,
   citations: z.array(sourceCitationSchema).min(1).max(MAX_CITATIONS),
   caveats: z.array(textSchema).max(MAX_CAVEATS),
+};
+
+export const listingCandidateSchema: z.ZodType<ListingCandidate> = z.object(
+  listingCandidateShape,
+);
+
+export const listingSearchFiltersSchema = z.object({
+  maxBudget: z.number().int().positive().nullable(),
+  beds: z.enum(["any", "studio", "1br"]),
+  timing: textSchema,
+  shortTerm: z.boolean(),
+  furnished: z.boolean(),
+});
+
+export const listingLeadStatusSchema = z.enum(["new", "seen"]);
+const persistedListingCandidateSchema: z.ZodType<ListingCandidate> = z.object({
+  ...listingCandidateShape,
+  url: listingCanonicalKeySchema,
+});
+
+export const listingLeadSchema: z.ZodType<ListingLead> = z.object({
+  canonicalUrl: listingCanonicalKeySchema,
+  firstSeenAt: z.string().datetime(),
+  lastSeenAt: z.string().datetime(),
+  lastSearchQuery: textSchema,
+  seenCount: z.number().int().positive(),
+  status: listingLeadStatusSchema,
+  candidate: persistedListingCandidateSchema,
 });
 
 export const listingSearchResponseSchema: z.ZodType<ListingSearchResponse> = z.object({

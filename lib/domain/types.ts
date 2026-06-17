@@ -92,6 +92,43 @@ export type ListingCandidate = {
   caveats: string[];
 };
 
+export type ListingSearchFilters = {
+  maxBudget: number | null;
+  beds: "any" | "studio" | "1br";
+  timing: string;
+  shortTerm: boolean;
+  furnished: boolean;
+};
+
+export type ListingLeadStatus = "new" | "seen";
+
+export type ListingLead = {
+  canonicalUrl: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSearchQuery: string;
+  seenCount: number;
+  status: ListingLeadStatus;
+  candidate: ListingCandidate;
+};
+
+export type ListingLedger = Record<string, ListingLead>;
+
+export type ListingPlanningSignal = {
+  label: string;
+  delta: number;
+};
+
+export type ListingDisplayCandidate = ListingCandidate & {
+  canonicalUrl: string;
+  leadStatus: ListingLeadStatus;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  seenCount: number;
+  planningScore: Score;
+  planningSignals: string[];
+};
+
 export type ListingSearchResponse = {
   candidates: ListingCandidate[];
   sourceSummary: string;
