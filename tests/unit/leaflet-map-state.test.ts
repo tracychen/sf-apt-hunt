@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { seedMapState } from "@/lib/map/seed-data";
+import { samplePlanningMapState } from "@/lib/map/seed-data";
 import {
   applyCorridorGeometryEdit,
   applyCorridorMetadataEdit,
@@ -10,7 +10,7 @@ import {
 
 describe("leaflet map state edits", () => {
   it("updates a zone polygon and closes the edited ring", () => {
-    const nextState = applyZoneGeometryEdit(seedMapState, "mission-dolores-valencia", [
+    const nextState = applyZoneGeometryEdit(samplePlanningMapState, "mission-dolores-valencia", [
       [-122.433, 37.771],
       [-122.414, 37.771],
       [-122.414, 37.751],
@@ -27,7 +27,7 @@ describe("leaflet map state edits", () => {
   });
 
   it("updates a corridor polyline", () => {
-    const nextState = applyCorridorGeometryEdit(seedMapState, "valencia", [
+    const nextState = applyCorridorGeometryEdit(samplePlanningMapState, "valencia", [
       [-122.422, 37.753],
       [-122.422, 37.77],
     ]);
@@ -39,7 +39,7 @@ describe("leaflet map state edits", () => {
   });
 
   it("updates a target marker coordinate", () => {
-    const nextState = applyTargetCoordinateEdit(seedMapState, "valencia-20th", [-122.4225, 37.7595]);
+    const nextState = applyTargetCoordinateEdit(samplePlanningMapState, "valencia-20th", [-122.4225, 37.7595]);
 
     expect(nextState?.targets.find((target) => target.id === "valencia-20th")?.coordinates).toEqual([
       -122.4225,
@@ -48,14 +48,14 @@ describe("leaflet map state edits", () => {
   });
 
   it("rejects target marker coordinates outside San Francisco", () => {
-    expect(applyTargetCoordinateEdit(seedMapState, "valencia-20th", [-73.9857, 40.7484])).toBeNull();
+    expect(applyTargetCoordinateEdit(samplePlanningMapState, "valencia-20th", [-73.9857, 40.7484])).toBeNull();
   });
 
-  it("renames an untouched seed target when dragged away from its seed location", () => {
-    const nextState = applyTargetCoordinateEdit(seedMapState, "valencia-20th", [-122.4225, 37.7595]);
+  it("keeps target labels when dragged on a clean-default map", () => {
+    const nextState = applyTargetCoordinateEdit(samplePlanningMapState, "valencia-20th", [-122.4225, 37.7595]);
 
     expect(nextState?.targets.find((target) => target.id === "valencia-20th")?.name).toBe(
-      "Custom location",
+      "Valencia & 20th",
     );
     expect(nextState?.targets.find((target) => target.id === "valencia-20th")?.purpose).toBe(
       "Mission favorite block",
@@ -64,8 +64,8 @@ describe("leaflet map state edits", () => {
 
   it("does not overwrite a manually edited target location label when dragged", () => {
     const editedState = {
-      ...seedMapState,
-      targets: seedMapState.targets.map((target) =>
+      ...samplePlanningMapState,
+      targets: samplePlanningMapState.targets.map((target) =>
         target.id === "valencia-20th" ? { ...target, name: "My favorite Valencia block" } : target,
       ),
     };
@@ -77,7 +77,7 @@ describe("leaflet map state edits", () => {
   });
 
   it("updates target planning fields", () => {
-    const nextState = applyTargetPlanningFieldEdit(seedMapState, "polk-sacramento", {
+    const nextState = applyTargetPlanningFieldEdit(samplePlanningMapState, "polk-sacramento", {
       purpose: "late-night noise",
       influence: "negative",
       radiusMinutes: 15,
@@ -93,7 +93,7 @@ describe("leaflet map state edits", () => {
   });
 
   it("updates corridor metadata fields", () => {
-    const nextState = applyCorridorMetadataEdit(seedMapState, "polk", {
+    const nextState = applyCorridorMetadataEdit(samplePlanningMapState, "polk", {
       name: "Polk Gulch spine",
       priority: "high",
       tags: ["fitness", "transit", "safety"],
@@ -110,16 +110,16 @@ describe("leaflet map state edits", () => {
 
   it("returns null for unknown corridor metadata edits", () => {
     expect(
-      applyCorridorMetadataEdit(seedMapState, "missing-corridor", {
+      applyCorridorMetadataEdit(samplePlanningMapState, "missing-corridor", {
         priority: "high",
       }),
     ).toBeNull();
   });
 
   it("returns null when edited geometry does not change", () => {
-    const zone = seedMapState.zones.find((item) => item.id === "mission-dolores-valencia");
-    const corridor = seedMapState.corridors.find((item) => item.id === "valencia");
-    const target = seedMapState.targets.find((item) => item.id === "valencia-20th");
+    const zone = samplePlanningMapState.zones.find((item) => item.id === "mission-dolores-valencia");
+    const corridor = samplePlanningMapState.corridors.find((item) => item.id === "valencia");
+    const target = samplePlanningMapState.targets.find((item) => item.id === "valencia-20th");
 
     expect(zone).toBeDefined();
     expect(corridor).toBeDefined();
@@ -129,14 +129,14 @@ describe("leaflet map state edits", () => {
       return;
     }
 
-    expect(applyZoneGeometryEdit(seedMapState, zone.id, zone.geometry.coordinates[0])).toBeNull();
-    expect(applyCorridorGeometryEdit(seedMapState, corridor.id, corridor.geometry.coordinates)).toBeNull();
-    expect(applyCorridorMetadataEdit(seedMapState, corridor.id, {
+    expect(applyZoneGeometryEdit(samplePlanningMapState, zone.id, zone.geometry.coordinates[0])).toBeNull();
+    expect(applyCorridorGeometryEdit(samplePlanningMapState, corridor.id, corridor.geometry.coordinates)).toBeNull();
+    expect(applyCorridorMetadataEdit(samplePlanningMapState, corridor.id, {
       name: corridor.name,
       priority: corridor.priority,
       tags: corridor.tags,
       notes: corridor.notes,
     })).toBeNull();
-    expect(applyTargetCoordinateEdit(seedMapState, target.id, target.coordinates)).toBeNull();
+    expect(applyTargetCoordinateEdit(samplePlanningMapState, target.id, target.coordinates)).toBeNull();
   });
 });

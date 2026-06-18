@@ -6,11 +6,12 @@ import {
   isLineStringInSfBounds,
   isPolygonInSfBounds,
 } from "@/lib/map/sf-bounds";
-import { seedMapState } from "@/lib/map/seed-data";
+import { samplePlanningMapState, seedMapState } from "@/lib/map/seed-data";
 
 describe("seedMapState", () => {
   it("validates with mapStateSchema", () => {
     expect(() => mapStateSchema.parse(seedMapState)).not.toThrow();
+    expect(() => mapStateSchema.parse(samplePlanningMapState)).not.toThrow();
   });
 
   it("contains exactly the expected seed zone IDs", () => {
@@ -26,8 +27,21 @@ describe("seedMapState", () => {
   });
 
   it("keeps all target points inside SF bounds", () => {
-    for (const target of seedMapState.targets) {
+    for (const target of samplePlanningMapState.targets) {
       expect(isCoordinateInSfBounds(target.coordinates)).toBe(true);
+    }
+  });
+
+  it("starts the default map with reference zones only", () => {
+    expect(seedMapState.targets).toEqual([]);
+    expect(seedMapState.corridors).toEqual([]);
+    expect(seedMapState.zones).toHaveLength(samplePlanningMapState.zones.length);
+
+    for (const zone of seedMapState.zones) {
+      expect(zone.fitnessScore).toBe(3);
+      expect(zone.affordabilityScore).toBe(3);
+      expect(zone.carFreeScore).toBe(3);
+      expect(zone.notes).toEqual([]);
     }
   });
 
@@ -38,7 +52,7 @@ describe("seedMapState", () => {
   });
 
   it("keeps all corridor lines inside SF bounds", () => {
-    for (const corridor of seedMapState.corridors) {
+    for (const corridor of samplePlanningMapState.corridors) {
       expect(isLineStringInSfBounds(corridor.geometry)).toBe(true);
     }
   });

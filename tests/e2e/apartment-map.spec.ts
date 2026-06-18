@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { seedMapState } from "../../lib/map/seed-data";
+import { samplePlanningMapState, seedMapState } from "../../lib/map/seed-data";
 
 const transparentPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
@@ -31,9 +31,13 @@ test("renders editable apartment map shell", async ({ page }) => {
   await expect(page.locator(".leaflet-container")).toBeVisible();
   await expect(page.locator(".leaflet-pm-toolbar")).toBeVisible();
   await expect(page.locator(".leaflet-pm-icon-edit")).toBeVisible();
+  await expect(page.locator(".target-anchor-marker")).toHaveCount(0);
+  await expect(page.locator(".target-anchor-radius")).toHaveCount(0);
+  await expect(page.locator(".target-corridor")).toHaveCount(0);
 });
 
 test("target planning anchors show purpose labels and radius rings", async ({ page }) => {
+  await loadSamplePlanningMap(page);
   await page.goto("/");
 
   await expect(page.locator(".target-anchor-radius")).toHaveCount(3);
@@ -45,6 +49,7 @@ test("target planning anchors show purpose labels and radius rings", async ({ pa
 });
 
 test("edits selected target planning fields from the sidebar", async ({ page }) => {
+  await loadSamplePlanningMap(page);
   await page.goto("/");
 
   await page.getByTitle("Mission favorite block · Valencia & 20th").click();
@@ -67,6 +72,7 @@ test("edits selected target planning fields from the sidebar", async ({ page }) 
 });
 
 test("edits selected corridor metadata from the sidebar", async ({ page }) => {
+  await loadSamplePlanningMap(page);
   await page.goto("/");
 
   await clickPolkCorridor(page);
@@ -90,6 +96,7 @@ test("edits selected corridor metadata from the sidebar", async ({ page }) => {
 });
 
 test("target field edits are undoable and resettable", async ({ page }) => {
+  await loadSamplePlanningMap(page);
   await page.goto("/");
 
   await page.getByTitle("Mission favorite block · Valencia & 20th").click();
@@ -108,13 +115,14 @@ test("target field edits are undoable and resettable", async ({ page }) => {
   await page.getByLabel("Target purpose").blur();
   await expect(page.getByLabel("Target purpose")).toHaveValue("favorite dinner block");
   await page.getByRole("button", { name: "Reset selected shape" }).click();
-  await expect(page.getByLabel("Target purpose")).toHaveValue("Mission favorite block");
+  await expect(page.getByText("Active shape: None")).toBeVisible();
   await expect(
     page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });
 
 test("corridor field edits are undoable and resettable", async ({ page }) => {
+  await loadSamplePlanningMap(page);
   await page.goto("/");
 
   await clickPolkCorridor(page);
@@ -129,7 +137,8 @@ test("corridor field edits are undoable and resettable", async ({ page }) => {
   await page.getByLabel("Corridor name").blur();
   await expect(page.getByLabel("Corridor name")).toHaveValue("Polk Gulch spine");
   await page.getByRole("button", { name: "Reset selected shape" }).click();
-  await expect(page.getByLabel("Corridor name")).toHaveValue("Polk Street");
+  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByLabel("Corridor name")).toHaveCount(0);
 });
 
 test("resetting a custom target removes the stale selected target", async ({ page }) => {
@@ -223,6 +232,7 @@ test("clamps selected target planning text fields to persisted schema limits", a
     .slice(0, maxTargetNotes)
     .map((note) => note.slice(0, maxTargetTextLength));
 
+  await loadSamplePlanningMap(page);
   await page.goto("/");
 
   await page.getByTitle("Mission favorite block · Valencia & 20th").click();
@@ -252,6 +262,7 @@ test("clamps selected corridor text fields to persisted schema limits", async ({
     .slice(0, maxCorridorNotes)
     .map((note) => note.slice(0, maxCorridorTextLength));
 
+  await loadSamplePlanningMap(page);
   await page.goto("/");
 
   await clickPolkCorridor(page);
@@ -325,6 +336,7 @@ test("shows proposal review before applying AI changes", async ({ page }) => {
     });
   });
 
+  await loadSamplePlanningMap(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Add OpenAI key" }).click();
   await page.getByLabel("OpenAI API key").fill("sk-test");
@@ -475,6 +487,7 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
     });
   });
 
+  await loadSamplePlanningMap(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Add OpenAI key" }).click();
   await page.getByLabel("OpenAI API key").fill("sk-test");
@@ -547,6 +560,7 @@ test("rescores visible listing cards after map context changes without a new sea
     });
   });
 
+  await loadSamplePlanningMap(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Add OpenAI key" }).click();
   await page.getByLabel("OpenAI API key").fill("sk-test");
@@ -790,6 +804,7 @@ test("undoes applied map changes with Ctrl+Z or Cmd+Z", async ({ page }) => {
     });
   });
 
+  await loadSamplePlanningMap(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Add OpenAI key" }).click();
   await page.getByLabel("OpenAI API key").fill("sk-test");
@@ -832,10 +847,49 @@ async function readCorridorPriority(page: Page, corridorId: string) {
   );
 }
 
+async function loadSamplePlanningMap(page: Page) {
+  await page.addInitScript(
+    ({ key, state }) => {
+      if (!window.localStorage.getItem(key)) {
+        window.localStorage.setItem(key, JSON.stringify(state));
+      }
+    },
+    { key: mapStateStorageKey, state: samplePlanningMapState },
+  );
+}
+
 async function clickPolkCorridor(page: Page) {
-  await page.locator(".target-corridor-polk").click({ force: true });
+  await clickCorridor(page, ".target-corridor-polk");
 }
 
 async function clickCustomCorridor(page: Page) {
-  await page.locator(".target-corridor-custom-corridor").click({ force: true });
+  await clickCorridor(page, ".target-corridor-custom-corridor");
+}
+
+async function clickCorridor(page: Page, selector: string) {
+  const corridor = page.locator(selector);
+  await expect(corridor).toHaveCount(1);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await corridor.click({ force: true });
+    if (await isCorridorEditorVisible(page)) {
+      return;
+    }
+
+    await corridor.dispatchEvent("click");
+    if (await isCorridorEditorVisible(page)) {
+      return;
+    }
+  }
+
+  await expect(page.getByLabel("Corridor name")).toBeVisible();
+}
+
+async function isCorridorEditorVisible(page: Page) {
+  try {
+    await expect(page.getByLabel("Corridor name")).toBeVisible({ timeout: 1_000 });
+    return true;
+  } catch {
+    return false;
+  }
 }

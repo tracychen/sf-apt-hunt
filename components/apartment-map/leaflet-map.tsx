@@ -151,6 +151,15 @@ function zonePathOptions(selected: boolean, kind: "neighborhood" | "caution"): P
   };
 }
 
+function hasZonePlanningScores(zone: MapState["zones"][number]) {
+  return (
+    zone.fitnessScore !== 3 ||
+    zone.affordabilityScore !== 3 ||
+    zone.carFreeScore !== 3 ||
+    zone.notes.length > 0
+  );
+}
+
 function corridorPathOptions(priority: Priority): PathOptions {
   if (priority === "high") {
     return { color: "#be123c", opacity: 0.95, weight: 5 };
@@ -535,9 +544,13 @@ export function LeafletMap({
                 <div className="space-y-1 text-sm">
                   <p className="font-semibold">{zone.name}</p>
                   <p>{selected ? "Selected search zone" : "Click to select this zone"}</p>
-                  <p>
-                    Fit {zone.fitnessScore}/5, rent {zone.affordabilityScore}/5, transit {zone.carFreeScore}/5
-                  </p>
+                  {hasZonePlanningScores(zone) ? (
+                    <p>
+                      Fit {zone.fitnessScore}/5, rent {zone.affordabilityScore}/5, transit {zone.carFreeScore}/5
+                    </p>
+                  ) : (
+                    <p>Reference neighborhood outline</p>
+                  )}
                 </div>
               </Popup>
             </ZonePolygon>

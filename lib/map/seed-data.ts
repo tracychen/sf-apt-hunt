@@ -1,6 +1,6 @@
-import type { MapState } from "@/lib/domain/types";
+import type { Coordinate, MapState, MapZone } from "@/lib/domain/types";
 
-export const seedMapState: MapState = {
+export const samplePlanningMapState: MapState = {
   zones: [
     {
       id: "marina-cow-hollow",
@@ -227,3 +227,25 @@ export const seedMapState: MapState = {
     },
   ],
 };
+
+export const seedMapState: MapState = {
+  zones: samplePlanningMapState.zones.map(toReferenceZone),
+  corridors: [],
+  targets: [],
+};
+
+function toReferenceZone(zone: MapZone): MapZone {
+  return {
+    ...zone,
+    geometry: {
+      type: zone.geometry.type,
+      coordinates: zone.geometry.coordinates.map((ring) =>
+        ring.map(([lng, lat]): Coordinate => [lng, lat]),
+      ),
+    },
+    fitnessScore: 3,
+    affordabilityScore: 3,
+    carFreeScore: 3,
+    notes: [],
+  };
+}

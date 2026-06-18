@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { applyProposal } from "@/lib/map/proposals";
-import { seedMapState } from "@/lib/map/seed-data";
+import { samplePlanningMapState } from "@/lib/map/seed-data";
 
 describe("applyProposal", () => {
   it("applies a valid addTarget operation", () => {
-    const result = applyProposal(seedMapState, {
+    const result = applyProposal(samplePlanningMapState, {
       summary: "Add 16th and Mission.",
       operations: [
         {
@@ -31,14 +31,14 @@ describe("applyProposal", () => {
       expect(result.state.targets.some((target) => target.id === "sixteenth-mission")).toBe(
         true,
       );
-      expect(seedMapState.targets.some((target) => target.id === "sixteenth-mission")).toBe(
+      expect(samplePlanningMapState.targets.some((target) => target.id === "sixteenth-mission")).toBe(
         false,
       );
     }
   });
 
   it("rejects invalid coordinates", () => {
-    const result = applyProposal(seedMapState, {
+    const result = applyProposal(samplePlanningMapState, {
       summary: "Bad point.",
       operations: [
         {
@@ -63,7 +63,7 @@ describe("applyProposal", () => {
   });
 
   it("rejects unknown zone IDs", () => {
-    const result = applyProposal(seedMapState, {
+    const result = applyProposal(samplePlanningMapState, {
       summary: "Unknown zone.",
       operations: [
         {
@@ -80,7 +80,7 @@ describe("applyProposal", () => {
   });
 
   it("rejects replacement geometry outside SF", () => {
-    const result = applyProposal(seedMapState, {
+    const result = applyProposal(samplePlanningMapState, {
       summary: "Move zone outside SF.",
       operations: [
         {
@@ -109,7 +109,7 @@ describe("applyProposal", () => {
   });
 
   it("rejects replacement geometry with open or too-short polygon rings", () => {
-    const openRingResult = applyProposal(seedMapState, {
+    const openRingResult = applyProposal(samplePlanningMapState, {
       summary: "Use an open zone polygon.",
       operations: [
         {
@@ -132,7 +132,7 @@ describe("applyProposal", () => {
       confidence: "low",
       requiresUserReview: true,
     });
-    const tooShortRingResult = applyProposal(seedMapState, {
+    const tooShortRingResult = applyProposal(samplePlanningMapState, {
       summary: "Use a too-short zone polygon.",
       operations: [
         {
@@ -160,7 +160,7 @@ describe("applyProposal", () => {
   });
 
   it("rejects added target IDs that already exist on zones or corridors", () => {
-    const existingZoneIdResult = applyProposal(seedMapState, {
+    const existingZoneIdResult = applyProposal(samplePlanningMapState, {
       summary: "Add target with existing zone ID.",
       operations: [
         {
@@ -180,7 +180,7 @@ describe("applyProposal", () => {
       confidence: "medium",
       requiresUserReview: true,
     });
-    const existingCorridorIdResult = applyProposal(seedMapState, {
+    const existingCorridorIdResult = applyProposal(samplePlanningMapState, {
       summary: "Add target with existing corridor ID.",
       operations: [
         {
@@ -206,7 +206,7 @@ describe("applyProposal", () => {
   });
 
   it("rejects added corridor IDs that already exist on zones or targets", () => {
-    const existingZoneIdResult = applyProposal(seedMapState, {
+    const existingZoneIdResult = applyProposal(samplePlanningMapState, {
       summary: "Add corridor with existing zone ID.",
       operations: [
         {
@@ -230,7 +230,7 @@ describe("applyProposal", () => {
       confidence: "medium",
       requiresUserReview: true,
     });
-    const existingTargetIdResult = applyProposal(seedMapState, {
+    const existingTargetIdResult = applyProposal(samplePlanningMapState, {
       summary: "Add corridor with existing target ID.",
       operations: [
         {
@@ -260,7 +260,7 @@ describe("applyProposal", () => {
   });
 
   it("updates corridor and target priority values by ID", () => {
-    const result = applyProposal(seedMapState, {
+    const result = applyProposal(samplePlanningMapState, {
       summary: "Prioritize Valencia.",
       operations: [
         {
@@ -292,7 +292,7 @@ describe("applyProposal", () => {
   });
 
   it("updates target planning fields by ID", () => {
-    const result = applyProposal(seedMapState, {
+    const result = applyProposal(samplePlanningMapState, {
       summary: "Clarify Valencia target.",
       operations: [
         {
