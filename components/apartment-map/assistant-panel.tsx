@@ -1,15 +1,82 @@
 "use client";
 
 import { type FormEvent, useMemo, useState } from "react";
+import { z } from "zod";
 
-import { listingSearchResponseSchema, mapPatchProposalSchema } from "@/lib/domain/schemas";
+import {
+  listingSearchResponseSchema,
+  mapPatchProposalSchema,
+  researchSummarySchema,
+} from "@/lib/domain/schemas";
 import type {
   ListingSearchFilters,
   ListingSearchResponse,
   MapPatchProposal,
   MapState,
+  ResearchSummary,
 } from "@/lib/domain/types";
+import { registerProposalResearchSummary } from "@/components/apartment-map/proposal-review-dialog";
 import { Button } from "@/components/ui/button";
+
+type PendingMapAssistantFollowUp = {
+  originalMessage: string;
+  assistantMessage: string;
+  missingInformation: string[];
+};
+
+type MapAssistantClientOutcome =
+  | {
+      kind: "needsMoreInfo";
+      assistantMessage: string;
+      missingInformation: string[];
+    }
+  | {
+      kind: "noAction";
+      assistantMessage: string;
+      caveats: string[];
+    }
+  | {
+      kind: "proposal";
+      assistantMessage: string;
+      proposal: MapPatchProposal;
+      researchSummary: ResearchSummary | null;
+    };
+
+const assistantMessageSchema = z.string().min(1).max(4_000);
+const assistantCaveatSchema = z.string().max(2_000);
+
+const currentMapAssistantOutcomeSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("needsMoreInfo"),
+      assistantMessage: assistantMessageSchema,
+      missingInformation: z.array(assistantCaveatSchema).min(1).max(20),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("noAction"),
+      assistantMessage: assistantMessageSchema,
+      caveats: z.array(assistantCaveatSchema).max(50),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("proposal"),
+      assistantMessage: assistantMessageSchema,
+      proposal: mapPatchProposalSchema,
+      researchSummary: researchSummarySchema.optional(),
+    })
+    .strict(),
+]);
+
+const legacyMapAssistantResponseSchema = z
+  .object({
+    explanation: z.string().min(1).max(4_000).optional(),
+    proposal: mapPatchProposalSchema.nullable(),
+    caveats: z.array(assistantCaveatSchema).max(50).optional(),
+  })
+  .passthrough();
 
 export function AssistantPanel(props: {
   apiKey: string | null;
@@ -36,6 +103,7 @@ export function AssistantPanel(props: {
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeListingRequestId, setActiveListingRequestId] = useState<number | null>(null);
+  const [pendingFollowUp, setPendingFollowUp] = useState<PendingMapAssistantFollowUp | null>(null);
   const activeFilters = useMemo<ListingSearchFilters>(
     () => ({
       maxBudget: parseBudget(maxBudget),
@@ -67,6 +135,7 @@ export function AssistantPanel(props: {
     }
 
     const requestKind = isListingSearchPrompt(trimmedMessage) ? "listing" : "map";
+    const followUpContext = requestKind === "map" ? pendingFollowUp : null;
     const listingRequest =
       requestKind === "listing"
         ? {
@@ -88,6 +157,7 @@ export function AssistantPanel(props: {
           headers: {
             authorization: `Bearer ${apiKey}`,
             "content-type": "application/json",
+            ...(requestKind === "map" ? { "x-sf-apt-session": getGeocodeSessionId() } : {}),
           },
           body: JSON.stringify(
             requestKind === "listing"
@@ -97,7 +167,7 @@ export function AssistantPanel(props: {
                   selectedContext: buildSelectedContext(mapState, selectedZoneIds),
                 }
               : {
-                  message: trimmedMessage,
+                  message: buildMapAssistantMessage(trimmedMessage, followUpContext),
                   mapState,
                   selectedZoneIds,
                   activeFilters,
@@ -131,9 +201,30 @@ export function AssistantPanel(props: {
         return;
       }
 
-      const proposal = readProposal(body);
-      props.onProposalChange(proposal);
-      setStatus(proposal ? "Map proposal ready for review." : "No map changes were proposed.");
+      const outcome = readMapAssistantOutcome(body);
+
+      if (outcome.kind === "needsMoreInfo") {
+        props.onProposalChange(null);
+        setPendingFollowUp({
+          originalMessage: followUpContext?.originalMessage ?? trimmedMessage,
+          assistantMessage: outcome.assistantMessage,
+          missingInformation: outcome.missingInformation,
+        });
+        setStatus(outcome.assistantMessage);
+        return;
+      }
+
+      setPendingFollowUp(null);
+
+      if (outcome.kind === "noAction") {
+        props.onProposalChange(null);
+        setStatus(outcome.assistantMessage);
+        return;
+      }
+
+      registerProposalResearchSummary(outcome.proposal, outcome.researchSummary);
+      props.onProposalChange(outcome.proposal);
+      setStatus(outcome.assistantMessage);
     } catch (requestError) {
       if (listingRequest && !props.isListingSearchRequestCurrent(listingRequest.requestId)) {
         return;
@@ -249,7 +340,7 @@ export function AssistantPanel(props: {
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="max-w-52 text-xs text-muted-foreground">
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground" aria-live="polite">
           {disabled
             ? "Save a key to enable assistant requests."
             : visibleStatus ?? "Ready to send a request."}
@@ -328,21 +419,80 @@ function parseListingSearchResponse(value: unknown): ListingSearchResponse | nul
   return parsed.success ? parsed.data : null;
 }
 
-function readProposal(value: unknown): MapPatchProposal | null {
-  if (!isRecord(value)) {
+function readMapAssistantOutcome(value: unknown): MapAssistantClientOutcome {
+  const currentOutcome = currentMapAssistantOutcomeSchema.safeParse(value);
+
+  if (currentOutcome.success) {
+    if (currentOutcome.data.kind === "proposal") {
+      return {
+        ...currentOutcome.data,
+        researchSummary: currentOutcome.data.researchSummary ?? null,
+      };
+    }
+
+    return currentOutcome.data;
+  }
+
+  const legacyOutcome = legacyMapAssistantResponseSchema.safeParse(value);
+
+  if (!legacyOutcome.success) {
     throw new Error("Map assistant returned an unexpected response.");
   }
 
-  if (value.proposal === null) {
-    return null;
+  if (!legacyOutcome.data.proposal) {
+    return {
+      kind: "noAction",
+      assistantMessage: legacyOutcome.data.explanation ?? "No map changes were proposed.",
+      caveats: legacyOutcome.data.caveats ?? [],
+    };
   }
 
-  const parsed = mapPatchProposalSchema.safeParse(value.proposal);
-  if (!parsed.success) {
-    throw new Error("Map assistant returned an unexpected response.");
+  return {
+    kind: "proposal",
+    assistantMessage: "Map proposal ready for review.",
+    proposal: legacyOutcome.data.proposal,
+    researchSummary: null,
+  };
+}
+
+function buildMapAssistantMessage(
+  message: string,
+  pendingFollowUp: PendingMapAssistantFollowUp | null,
+) {
+  if (!pendingFollowUp) {
+    return message;
   }
 
-  return parsed.data;
+  return [
+    `Original request: ${pendingFollowUp.originalMessage}`,
+    `Assistant follow-up question: ${pendingFollowUp.assistantMessage}`,
+    pendingFollowUp.missingInformation.length > 0
+      ? `Missing information: ${pendingFollowUp.missingInformation.join(", ")}`
+      : null,
+    `User follow-up answer: ${message}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function getGeocodeSessionId() {
+  const storageKey = "sf-apt-hunt:geocode-session:v1";
+
+  try {
+    const existingSessionId = window.sessionStorage.getItem(storageKey);
+    if (existingSessionId) {
+      return existingSessionId;
+    }
+
+    const nextSessionId =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `session-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(storageKey, nextSessionId);
+    return nextSessionId;
+  } catch {
+    return "session-unavailable";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

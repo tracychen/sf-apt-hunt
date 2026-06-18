@@ -1,20 +1,35 @@
 import { z } from "zod";
 
 import type {
+  CorridorGeometryQuality,
   GeocodeAuthorization,
   LineStringGeometry,
   ListingCandidate,
   ListingLead,
   ListingSearchResponse,
+  MapAssistantOutcome,
   MapPatchProposal,
   MapState,
   MapZone,
   PolygonGeometry,
+  ResearchExclusion,
+  ResearchExclusionReason,
+  ResearchSummary,
+  ResearchSummaryItem,
+  ResearchedCorridorCandidate,
+  ResearchedCorridorGeometryCandidate,
+  ResearchedCorridorGeometrySourceFormat,
+  ResearchedCorridorModelLineStringGeometryCandidate,
+  ResearchedCorridorOrderedWaypointsGeometryCandidate,
+  ResearchedCorridorSourceUrlGeometryCandidate,
+  ResearchedCorridorWaypointCandidate,
+  ResearchedTargetCandidate,
   SourceCitation,
   TargetCorridor,
   TargetPoint,
 } from "@/lib/domain/types";
 import { isCoordinateInSfBounds } from "@/lib/map/sf-bounds";
+import { validateResearchSummaryCorrelation } from "@/lib/map/research-summary";
 
 const coordinateSchema = z.tuple([z.number(), z.number()]);
 const targetCoordinateSchema = coordinateSchema.refine(
@@ -55,6 +70,11 @@ const MAX_LISTING_CANDIDATES = 100;
 const MAX_CITATIONS = 50;
 const MAX_CAVEATS = 50;
 const MAX_PROPOSAL_OPERATIONS = 50;
+const MAX_RESEARCH_SUMMARY_EXCLUSIONS = 100;
+const MAX_MISSING_INFORMATION_ITEMS = 20;
+export const MAX_RESEARCHED_TARGET_CANDIDATES = 20;
+export const MAX_RESEARCHED_CORRIDOR_CANDIDATES = 5;
+const MAX_RESEARCHED_CORRIDOR_WAYPOINTS = 25;
 const MAX_MAP_ZONES = 100;
 const MAX_MAP_CORRIDORS = 100;
 const MAX_MAP_TARGETS = 200;
@@ -123,6 +143,136 @@ export const sourceCitationSchema: z.ZodType<SourceCitation> = z.object({
   title: textSchema.nullable(),
   sourceDomain: idSchema,
 });
+
+const researchConfidenceSchema = z.enum(["high", "medium", "low"]);
+const corridorGeometryQualitySchema: z.ZodType<CorridorGeometryQuality> = z.enum([
+  "official",
+  "fromStops",
+  "approximate",
+]);
+const researchExclusionReasonSchema: z.ZodType<ResearchExclusionReason> = z.enum([
+  "duplicate",
+  "out_of_bounds",
+  "geocode_failed",
+  "missing_source",
+  "invalid_geometry",
+  "over_cap",
+]);
+const researchedCorridorGeometrySourceFormatSchema: z.ZodType<ResearchedCorridorGeometrySourceFormat> =
+  z.enum(["gtfs", "geojson", "kml", "polyline", "unknown"]);
+
+export const researchSummaryItemSchema: z.ZodType<ResearchSummaryItem> = z.object({
+  entityId: idSchema,
+  operationType: z.enum(["addTarget", "addCorridor"]),
+  label: nameSchema,
+  source: sourceCitationSchema,
+  confidence: researchConfidenceSchema,
+  geometryQuality: corridorGeometryQualitySchema.optional(),
+  geocodePrecision: z.enum(["exact", "approximate"]).optional(),
+  caveats: z.array(textSchema).max(MAX_CAVEATS),
+});
+
+export const researchExclusionSchema: z.ZodType<ResearchExclusion> = z.object({
+  label: nameSchema,
+  reason: researchExclusionReasonSchema,
+  source: sourceCitationSchema.optional(),
+  caveats: z.array(textSchema).max(MAX_CAVEATS),
+});
+
+export const researchSummarySchema: z.ZodType<ResearchSummary> = z.object({
+  items: z.array(researchSummaryItemSchema).max(MAX_PROPOSAL_OPERATIONS),
+  exclusions: z.array(researchExclusionSchema).max(MAX_RESEARCH_SUMMARY_EXCLUSIONS),
+  caveats: z.array(textSchema).max(MAX_CAVEATS),
+});
+
+export const researchedTargetCandidateSchema: z.ZodType<ResearchedTargetCandidate> = z
+  .object({
+    id: idSchema,
+    name: nameSchema,
+    address: requiredTextSchema.nullable(),
+    geocodeQuery: requiredTextSchema,
+    source: sourceCitationSchema,
+    purpose: requiredTextSchema,
+    influence: targetInfluenceSchema,
+    priority: prioritySchema,
+    radiusMinutes: targetRadiusMinutesSchema,
+    confidence: researchConfidenceSchema,
+    caveats: z.array(textSchema).max(MAX_CAVEATS),
+  })
+  .strict();
+
+export const researchedTargetCandidatesSchema = z
+  .array(researchedTargetCandidateSchema)
+  .max(MAX_RESEARCHED_TARGET_CANDIDATES);
+
+const researchedCorridorSourceUrlGeometryCandidateObject = z
+  .object({
+    kind: z.literal("sourceUrl"),
+    url: urlSchema,
+    format: researchedCorridorGeometrySourceFormatSchema,
+  })
+  .strict();
+
+export const researchedCorridorSourceUrlGeometryCandidateSchema: z.ZodType<ResearchedCorridorSourceUrlGeometryCandidate> =
+  researchedCorridorSourceUrlGeometryCandidateObject;
+
+export const researchedCorridorWaypointCandidateSchema: z.ZodType<ResearchedCorridorWaypointCandidate> =
+  z
+    .object({
+      label: nameSchema,
+      geocodeQuery: requiredTextSchema,
+    })
+    .strict();
+
+const researchedCorridorOrderedWaypointsGeometryCandidateObject = z
+  .object({
+    kind: z.literal("orderedWaypoints"),
+    waypoints: z
+      .array(researchedCorridorWaypointCandidateSchema)
+      .min(2)
+      .max(MAX_RESEARCHED_CORRIDOR_WAYPOINTS),
+  })
+  .strict();
+
+export const researchedCorridorOrderedWaypointsGeometryCandidateSchema: z.ZodType<ResearchedCorridorOrderedWaypointsGeometryCandidate> =
+  researchedCorridorOrderedWaypointsGeometryCandidateObject;
+
+const researchedCorridorModelLineStringGeometryCandidateObject = z
+  .object({
+    kind: z.literal("modelLineString"),
+    coordinates: z.array(coordinateSchema).min(2).max(MAX_LINE_POINTS),
+    caveat: requiredTextSchema,
+  })
+  .strict();
+
+export const researchedCorridorModelLineStringGeometryCandidateSchema: z.ZodType<ResearchedCorridorModelLineStringGeometryCandidate> =
+  researchedCorridorModelLineStringGeometryCandidateObject;
+
+export const researchedCorridorGeometryCandidateSchema: z.ZodType<ResearchedCorridorGeometryCandidate> =
+  z.discriminatedUnion("kind", [
+    researchedCorridorSourceUrlGeometryCandidateObject,
+    researchedCorridorOrderedWaypointsGeometryCandidateObject,
+    researchedCorridorModelLineStringGeometryCandidateObject,
+  ]);
+
+export const researchedCorridorCandidateSchema: z.ZodType<ResearchedCorridorCandidate> = z
+  .object({
+    id: idSchema,
+    name: nameSchema,
+    source: sourceCitationSchema,
+    priority: prioritySchema,
+    tags: z.array(z.enum(["fitness", "rent", "transit", "safety", "short-term"])).max(MAX_TAGS),
+    notes: notesSchema,
+    confidence: researchConfidenceSchema,
+    requestedGeometryQuality: corridorGeometryQualitySchema,
+    geometry: researchedCorridorGeometryCandidateSchema,
+    caveats: z.array(textSchema).max(MAX_CAVEATS),
+  })
+  .strict();
+
+export const researchedCorridorCandidatesSchema = z
+  .array(researchedCorridorCandidateSchema)
+  .max(MAX_RESEARCHED_CORRIDOR_CANDIDATES);
 
 export const geocodeAuthorizationSchema: z.ZodType<GeocodeAuthorization> = z.object({
   nonce: geocodeAuthNonceSchema,
@@ -276,6 +426,54 @@ export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
     }
   });
 });
+
+export const mapAssistantOutcomeSchema: z.ZodType<MapAssistantOutcome> = z
+  .discriminatedUnion("kind", [
+    z
+      .object({
+        kind: z.literal("needsMoreInfo"),
+        assistantMessage: requiredLongTextSchema,
+        missingInformation: z
+          .array(requiredTextSchema)
+          .min(1)
+          .max(MAX_MISSING_INFORMATION_ITEMS),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("proposal"),
+        assistantMessage: requiredLongTextSchema,
+        proposal: mapPatchProposalSchema,
+        researchSummary: researchSummarySchema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("noAction"),
+        assistantMessage: requiredLongTextSchema,
+        caveats: z.array(textSchema).max(MAX_CAVEATS),
+      })
+      .strict(),
+  ])
+  .superRefine((outcome, context) => {
+    if (outcome.kind !== "proposal") {
+      return;
+    }
+
+    const correlation = validateResearchSummaryCorrelation({
+      proposal: outcome.proposal,
+      researchSummary: outcome.researchSummary,
+      requireMetadataForAllResearchOperations: false,
+    });
+
+    if (!correlation.ok) {
+      context.addIssue({
+        code: "custom",
+        path: ["researchSummary", "items"],
+        message: correlation.error,
+      });
+    }
+  });
 
 export const mapStateSchema: z.ZodType<MapState> = z.object({
   zones: z.array(mapZoneSchema).max(MAX_MAP_ZONES),

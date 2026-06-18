@@ -339,6 +339,32 @@ test("shows proposal review before applying AI changes", async ({ page }) => {
   expect(applyProposalCalled).toBe(false);
 });
 
+test("shows map assistant follow-up questions without proposal review", async ({ page }) => {
+  await page.route("**/api/ai/map-assistant", async (route) => {
+    expect(route.request().headers()["x-sf-apt-session"]).toBeTruthy();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "needsMoreInfo",
+        assistantMessage: "Which area should I search for those studios?",
+        missingInformation: ["where to search"],
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await page.getByLabel("Ask the assistant").fill("Add pins for nearby gyms");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Which area should I search for those studios?")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+  await expect(page.getByText("Review proposed map changes")).toHaveCount(0);
+});
+
 test("renders listing cards and geocodes authorized candidates", async ({ page }) => {
   let geocodeSessionHeader: string | undefined;
 

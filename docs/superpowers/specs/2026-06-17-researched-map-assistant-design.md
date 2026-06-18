@@ -103,6 +103,7 @@ Researched geocoding must be tightly capped because this is a public anonymous a
 - Each geocode attempt is charged against durable per-IP and per-session fixed-window counters before calling Google.
 - Production must require Redis-backed rate limiting for researched geocoding, using separate keys from listing geocoding, such as `geocode:map-research:ip:<hash>` and `geocode:map-research:session:<hash>`.
 - The initial researched-geocoding quota should be no more than 50 attempts per IP per hour and 50 attempts per session per hour. Raising that limit should be an explicit product decision.
+- Session identity should use the same client session header pattern as listing geocoding, currently `x-sf-apt-session`, with a server-generated fallback bucket only for development. Production should fail closed if no durable session identifier can be established.
 
 Successful geocodes become `addTarget` operations. Failed, duplicate, or out-of-bounds results are excluded from operations and summarized in `researchSummary`.
 
@@ -134,6 +135,8 @@ Approximate corridors are allowed because this app uses corridors as planning ob
 
 Every final corridor must satisfy the existing `TargetCorridor` contract: a `LineString` with 2 to the configured maximum number of points, valid `[lng, lat]` coordinates, accepted tags, notes, and priority.
 
+Official-geometry fetches must be treated as untrusted network input. The server should only fetch `http` or `https` URLs, reject credentials, reject private or local network hosts after DNS resolution and redirects, enforce short timeouts, cap response body size, cap redirect count, validate content type or file format before parsing, and reject geometry that fails normal bounds and point-count validation. Trusted static feeds configured by the app can bypass external fetching but must still pass geometry validation.
+
 ## Bounds And Nearby Areas
 
 Current proposal validation requires target and corridor coordinates to be inside San Francisco bounds. That is correct for "in SF" prompts.
@@ -163,6 +166,42 @@ Do not add a full research-results browser in v1. The proposal review should sta
 The implementation must keep TypeScript types, Zod schemas, and raw OpenAI JSON schemas aligned.
 
 Add a researched assistant response schema for `needsMoreInfo`, `proposal`, and `noAction`. The existing `MapPatchProposal` schema can remain the apply contract, but proposal review needs a companion `researchSummary` object that is shown in the UI and not persisted into map state.
+
+The raw OpenAI structured-output schema should define candidate payloads explicitly before enrichment. Candidate payloads are not map mutations until the server validates and converts them:
+
+```ts
+type ResearchedTargetCandidate = {
+  id: string;
+  name: string;
+  address: string | null;
+  geocodeQuery: string;
+  source: SourceCitation;
+  purpose: string;
+  influence: "positive" | "negative" | "neutral";
+  priority: "high" | "medium" | "low";
+  radiusMinutes: 5 | 10 | 15 | 20;
+  confidence: "high" | "medium" | "low";
+  caveats: string[];
+};
+
+type ResearchedCorridorCandidate = {
+  id: string;
+  name: string;
+  source: SourceCitation;
+  priority: "high" | "medium" | "low";
+  tags: Array<"fitness" | "rent" | "transit" | "safety" | "short-term">;
+  notes: string[];
+  confidence: "high" | "medium" | "low";
+  requestedGeometryQuality: "official" | "fromStops" | "approximate";
+  geometry:
+    | { kind: "sourceUrl"; url: string; format: "gtfs" | "geojson" | "kml" | "polyline" | "unknown" }
+    | { kind: "orderedWaypoints"; waypoints: Array<{ label: string; geocodeQuery: string }> }
+    | { kind: "modelLineString"; coordinates: Coordinate[]; caveat: string };
+  caveats: string[];
+};
+```
+
+`ResearchedTargetCandidate` must not carry trusted coordinates. If the model includes a coordinate-like value inside text, the server should ignore it for target placement and geocode `geocodeQuery`. `ResearchedCorridorCandidate.geometry.kind` controls the source-quality tier; `modelLineString` can never become `official`.
 
 `ResearchSummary` should be concrete and correlate metadata to proposed operations by proposed entity ID:
 

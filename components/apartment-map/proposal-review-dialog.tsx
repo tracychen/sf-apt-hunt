@@ -3,10 +3,31 @@
 import { useState } from "react";
 
 import { mapStateSchema } from "@/lib/domain/schemas";
-import type { Coordinate, MapPatchProposal, MapState } from "@/lib/domain/types";
+import type { Coordinate, MapPatchProposal, MapState, ResearchSummary } from "@/lib/domain/types";
 import { Button } from "@/components/ui/button";
 
 type ProposalOperation = MapPatchProposal["operations"][number];
+
+type ResearchSummaryItem = ResearchSummary["items"][number];
+type ResearchExclusion = ResearchSummary["exclusions"][number];
+
+const proposalResearchSummaries = new WeakMap<MapPatchProposal, ResearchSummary>();
+
+export function registerProposalResearchSummary(
+  proposal: MapPatchProposal | null,
+  researchSummary: ResearchSummary | null,
+) {
+  if (!proposal) {
+    return;
+  }
+
+  if (researchSummary) {
+    proposalResearchSummaries.set(proposal, researchSummary);
+    return;
+  }
+
+  proposalResearchSummaries.delete(proposal);
+}
 
 function describeOperation(operation: ProposalOperation) {
   switch (operation.type) {
@@ -168,12 +189,132 @@ function GeometryPreviewForOperation({
   return null;
 }
 
+function ResearchMetadata({ item }: { item: ResearchSummaryItem }) {
+  return (
+    <div className="mt-2 border border-border bg-muted/30 p-2 text-[11px] leading-5 text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="font-medium text-foreground">Research</span>
+        <span>{formatConfidence(item.confidence)} confidence</span>
+        {item.geometryQuality ? <span>Geometry: {formatGeometryQuality(item.geometryQuality)}</span> : null}
+        {item.geocodePrecision ? <span>Geocode: {item.geocodePrecision}</span> : null}
+      </div>
+      <p className="mt-1 break-words">
+        Source: <SourceLink source={item.source} />
+      </p>
+      {item.caveats.length > 0 ? (
+        <p className="mt-1 break-words">Caveats: {item.caveats.join(" / ")}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function ResearchSummaryDetails({ researchSummary }: { researchSummary: ResearchSummary | null }) {
+  if (!researchSummary) {
+    return null;
+  }
+
+  const hasCaveats = researchSummary.caveats.length > 0;
+  const hasExclusions = researchSummary.exclusions.length > 0;
+
+  if (!hasCaveats && !hasExclusions) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 border border-border bg-muted/30 p-2 text-xs leading-5 text-muted-foreground">
+      <p className="font-medium text-foreground">Research summary</p>
+      {hasCaveats ? <p className="mt-1 break-words">Caveats: {researchSummary.caveats.join(" / ")}</p> : null}
+      {hasExclusions ? (
+        <div className="mt-2">
+          <p className="font-medium text-foreground">Excluded results</p>
+          <ul className="mt-1 space-y-1">
+            {researchSummary.exclusions.map((exclusion, index) => (
+              <ResearchExclusionItem
+                key={`${exclusion.label}-${exclusion.reason}-${index}`}
+                exclusion={exclusion}
+              />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ResearchExclusionItem({ exclusion }: { exclusion: ResearchExclusion }) {
+  return (
+    <li className="break-words">
+      <span className="font-medium text-foreground">{exclusion.label}</span>:{" "}
+      {formatExclusionReason(exclusion.reason)}
+      {exclusion.source ? (
+        <>
+          {" "}
+          Source: <SourceLink source={exclusion.source} />
+        </>
+      ) : null}
+      {exclusion.caveats.length > 0 ? <> Caveats: {exclusion.caveats.join(" / ")}</> : null}
+    </li>
+  );
+}
+
+function SourceLink({ source }: { source: ResearchSummaryItem["source"] }) {
+  return (
+    <>
+      <a
+        className="underline underline-offset-2"
+        href={source.url}
+        rel="noreferrer"
+        target="_blank"
+      >
+        {source.title?.trim() || source.sourceDomain}
+      </a>
+      <span className="ml-1">({source.sourceDomain})</span>
+    </>
+  );
+}
+
 function formatCoordinate([lng, lat]: Coordinate) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
 function formatNotesPreview(notes: string[]) {
   return notes.length > 0 ? notes.join(" / ") : "none";
+}
+
+function findResearchItem(researchSummary: ResearchSummary | null, operation: ProposalOperation) {
+  if (!researchSummary) {
+    return null;
+  }
+
+  if (operation.type === "addTarget") {
+    return (
+      researchSummary.items.find(
+        (item) => item.operationType === "addTarget" && item.entityId === operation.target.id,
+      ) ?? null
+    );
+  }
+
+  if (operation.type === "addCorridor") {
+    return (
+      researchSummary.items.find(
+        (item) => item.operationType === "addCorridor" && item.entityId === operation.corridor.id,
+      ) ?? null
+    );
+  }
+
+  return null;
+}
+
+function formatConfidence(confidence: ResearchSummaryItem["confidence"]) {
+  return confidence[0].toUpperCase() + confidence.slice(1);
+}
+
+function formatGeometryQuality(quality: NonNullable<ResearchSummaryItem["geometryQuality"]>) {
+  return quality === "fromStops" ? "from stops" : quality;
+}
+
+function formatExclusionReason(reason: ResearchExclusion["reason"]) {
+  return reason.replaceAll("_", " ");
 }
 
 export function ProposalReviewDialog({
@@ -194,6 +335,8 @@ export function ProposalReviewDialog({
   if (!proposal) {
     return null;
   }
+
+  const researchSummary = proposalResearchSummaries.get(proposal) ?? null;
 
   async function handleApply() {
     if (!proposal || isApplying) {
@@ -262,14 +405,21 @@ export function ProposalReviewDialog({
       <p className="mt-3 text-sm leading-5">{proposal.summary}</p>
 
       <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-        {proposal.operations.map((operation, index) => (
-          <li key={`${operation.type}-${index}`}>
-            <span className="font-medium text-foreground">{describeOperation(operation)}</span>
-            <span className="mt-0.5 block">{operationPreview(operation, mapState)}</span>
-            <GeometryPreviewForOperation mapState={mapState} operation={operation} />
-          </li>
-        ))}
+        {proposal.operations.map((operation, index) => {
+          const researchItem = findResearchItem(researchSummary, operation);
+
+          return (
+            <li key={`${operation.type}-${index}`}>
+              <span className="font-medium text-foreground">{describeOperation(operation)}</span>
+              <span className="mt-0.5 block">{operationPreview(operation, mapState)}</span>
+              <GeometryPreviewForOperation mapState={mapState} operation={operation} />
+              {researchItem ? <ResearchMetadata item={researchItem} /> : null}
+            </li>
+          );
+        })}
       </ul>
+
+      <ResearchSummaryDetails researchSummary={researchSummary} />
 
       {error ? (
         <p className="mt-3 border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">

@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   listingCandidateSchema,
   listingSearchResponseSchema,
+  mapAssistantOutcomeSchema,
   mapPatchProposalSchema,
   mapStateSchema,
   mapZoneSchema,
+  researchedTargetCandidateSchema,
   targetCorridorSchema,
   targetPointSchema,
 } from "@/lib/domain/schemas";
+import { dedupeResearchedTargetCandidates } from "@/lib/map/researched-candidates";
 import { createGeocodeAuthorization } from "@/lib/server/geocode-auth";
 
 const polygon = {
@@ -86,6 +89,29 @@ describe("domain schemas", () => {
         notes: [],
       }),
     ).not.toThrow();
+  });
+
+  it("rejects researched target candidates with model-supplied coordinates", () => {
+    expect(() =>
+      researchedTargetCandidateSchema.parse({
+        id: "otf-financial-district",
+        name: "Orangetheory Fitness Financial District",
+        address: "123 Battery St, San Francisco, CA",
+        geocodeQuery: "Orangetheory Fitness Financial District, San Francisco, CA",
+        coordinates: [-122.409, 37.789],
+        source: {
+          url: "https://example.com/orangetheory",
+          title: "Orangetheory",
+          sourceDomain: "example.com",
+        },
+        purpose: "fitness studio",
+        influence: "positive",
+        priority: "high",
+        radiusMinutes: 10,
+        confidence: "high",
+        caveats: [],
+      }),
+    ).toThrow();
   });
 
   it("rejects target coordinates outside San Francisco", () => {
@@ -370,6 +396,91 @@ describe("domain schemas", () => {
         requiresUserReview: true,
       }),
     ).toThrow();
+  });
+
+  it("rejects researched assistant summaries that reference absent operations", () => {
+    expect(() =>
+      mapAssistantOutcomeSchema.parse({
+        kind: "proposal",
+        assistantMessage: "Review this researched target.",
+        proposal: {
+          summary: "No matching operations.",
+          operations: [],
+          confidence: "medium",
+          requiresUserReview: true,
+        },
+        researchSummary: {
+          items: [
+            {
+              entityId: "missing-target",
+              operationType: "addTarget",
+              label: "Missing target",
+              source: {
+                url: "https://example.com/missing",
+                title: "Missing",
+                sourceDomain: "example.com",
+              },
+              confidence: "medium",
+              geocodePrecision: "approximate",
+              caveats: [],
+            },
+          ],
+          exclusions: [],
+          caveats: [],
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("deduplicates researched target candidates by normalized address", () => {
+    const baseCandidate = {
+      id: "studio-a",
+      name: "Fitness Studio A",
+      address: "123 Battery St, San Francisco, CA",
+      geocodeQuery: "123 Battery Street, San Francisco, CA",
+      source: {
+        url: "https://example.com/studio-a",
+        title: "Studio A",
+        sourceDomain: "example.com",
+      },
+      purpose: "fitness studio",
+      influence: "positive" as const,
+      priority: "high" as const,
+      radiusMinutes: 10 as const,
+      confidence: "high" as const,
+      caveats: [],
+    };
+
+    const result = dedupeResearchedTargetCandidates({
+      mapState: {
+        zones: [],
+        corridors: [],
+        targets: [],
+      },
+      candidates: [
+        { candidate: baseCandidate, coordinates: [-122.4, 37.79] },
+        {
+          candidate: {
+            ...baseCandidate,
+            id: "studio-b",
+            source: {
+              url: "https://example.com/studio-b",
+              title: "Studio B",
+              sourceDomain: "example.com",
+            },
+          },
+          coordinates: [-122.4001, 37.7901],
+        },
+      ],
+    });
+
+    expect(result.accepted).toHaveLength(1);
+    expect(result.exclusions).toEqual([
+      expect.objectContaining({
+        label: "Fitness Studio A",
+        reason: "duplicate",
+      }),
+    ]);
   });
 
   it("caps map state collection sizes", () => {

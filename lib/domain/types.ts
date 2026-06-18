@@ -55,6 +55,121 @@ export type SourceCitation = {
   sourceDomain: string;
 };
 
+export type ResearchConfidence = "high" | "medium" | "low";
+
+export type CorridorGeometryQuality = "official" | "fromStops" | "approximate";
+
+export type ResearchExclusionReason =
+  | "duplicate"
+  | "out_of_bounds"
+  | "geocode_failed"
+  | "missing_source"
+  | "invalid_geometry"
+  | "over_cap";
+
+export type ResearchSummary = {
+  items: ResearchSummaryItem[];
+  exclusions: ResearchExclusion[];
+  caveats: string[];
+};
+
+export type ResearchSummaryItem = {
+  entityId: string;
+  operationType: "addTarget" | "addCorridor";
+  label: string;
+  source: SourceCitation;
+  confidence: ResearchConfidence;
+  geometryQuality?: CorridorGeometryQuality;
+  geocodePrecision?: "exact" | "approximate";
+  caveats: string[];
+};
+
+export type ResearchExclusion = {
+  label: string;
+  reason: ResearchExclusionReason;
+  source?: SourceCitation;
+  caveats: string[];
+};
+
+export type ResearchedCorridorGeometrySourceFormat =
+  | "gtfs"
+  | "geojson"
+  | "kml"
+  | "polyline"
+  | "unknown";
+
+export type ResearchedCorridorSourceUrlGeometryCandidate = {
+  kind: "sourceUrl";
+  url: string;
+  format: ResearchedCorridorGeometrySourceFormat;
+};
+
+export type ResearchedCorridorWaypointCandidate = {
+  label: string;
+  geocodeQuery: string;
+};
+
+export type ResearchedCorridorOrderedWaypointsGeometryCandidate = {
+  kind: "orderedWaypoints";
+  waypoints: ResearchedCorridorWaypointCandidate[];
+};
+
+export type ResearchedCorridorModelLineStringGeometryCandidate = {
+  kind: "modelLineString";
+  coordinates: Coordinate[];
+  caveat: string;
+};
+
+export type ResearchedCorridorGeometryCandidate =
+  | ResearchedCorridorSourceUrlGeometryCandidate
+  | ResearchedCorridorOrderedWaypointsGeometryCandidate
+  | ResearchedCorridorModelLineStringGeometryCandidate;
+
+export type ResearchedTargetCandidate = {
+  id: string;
+  name: string;
+  address: string | null;
+  geocodeQuery: string;
+  source: SourceCitation;
+  purpose: string;
+  influence: TargetInfluence;
+  priority: Priority;
+  radiusMinutes: TargetRadiusMinutes;
+  confidence: ResearchConfidence;
+  caveats: string[];
+};
+
+export type ResearchedCorridorCandidate = {
+  id: string;
+  name: string;
+  source: SourceCitation;
+  priority: Priority;
+  tags: TargetCorridor["tags"];
+  notes: string[];
+  confidence: ResearchConfidence;
+  requestedGeometryQuality: CorridorGeometryQuality;
+  geometry: ResearchedCorridorGeometryCandidate;
+  caveats: string[];
+};
+
+export type MapAssistantOutcome =
+  | {
+      kind: "needsMoreInfo";
+      assistantMessage: string;
+      missingInformation: string[];
+    }
+  | {
+      kind: "proposal";
+      assistantMessage: string;
+      proposal: MapPatchProposal;
+      researchSummary: ResearchSummary;
+    }
+  | {
+      kind: "noAction";
+      assistantMessage: string;
+      caveats: string[];
+    };
+
 export type GeocodeAuthorization = {
   nonce: string;
   expiresAt: string;
