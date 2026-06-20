@@ -5,8 +5,11 @@ const transparentPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
 );
+const openAiKeyStorageKey = "sf-apt-hunt:openai-key";
 const mapStateStorageKey = "sf-apt-hunt:map-state:v1";
 const listingLedgerStorageKey = "sf-apt-hunt:listing-ledger:v1";
+const planningInstallationStorageKey = "sf-apt-hunt:planning-installation:v1";
+const planningThreadCacheStorageKey = "sf-apt-hunt:planning-thread-cache:v1";
 const maxTargetNameLength = 160;
 const maxTargetTextLength = 2_000;
 const maxTargetNotes = 50;
@@ -69,6 +72,29 @@ test("edits selected target planning fields from the sidebar", async ({ page }) 
   await expect(page.getByText("Active shape: favorite dinner block · Valencia & 20th")).toBeVisible();
   await expect(page.getByLabel("Target influence")).toHaveValue("negative");
   await expect(page.getByLabel("Target radius")).toHaveValue("15");
+});
+
+test("deselects a selected target without changing map data", async ({ page }) => {
+  await loadSamplePlanningMap(page);
+  await page.goto("/");
+
+  await page.getByTitle("Mission favorite block · Valencia & 20th").click();
+  await expect(page.getByLabel("Target purpose")).toHaveValue("Mission favorite block");
+
+  await page.getByRole("button", { name: "Deselect" }).click();
+
+  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByLabel("Target purpose")).toHaveCount(0);
+  await expect(
+    page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
+  ).toBeVisible();
+
+  await page.getByTitle("Mission favorite block · Valencia & 20th").click();
+  await expect(page.getByLabel("Target purpose")).toHaveValue("Mission favorite block");
+  await page.getByRole("heading", { name: "SF Apartment Hunt" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByLabel("Target purpose")).toHaveCount(0);
 });
 
 test("edits selected corridor metadata from the sidebar", async ({ page }) => {
@@ -293,185 +319,187 @@ test("fits the apartment map on a mobile viewport without horizontal overflow", 
 test("shows disabled AI state until a key is saved", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByText("OpenAI key required")).toBeVisible();
-  await expect(page.getByText("AI requests are disabled until you save an OpenAI key.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "OpenAI key required" })).toBeVisible();
+  await expect(
+    page.locator("form").getByText("AI requests are disabled until you save an OpenAI key."),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 });
 
-test("shows proposal review before applying AI changes", async ({ page }) => {
-  let applyProposalCalled = false;
-
-  await page.route("**/api/ai/map-assistant", async (route) => {
-    expect(route.request().headers().authorization).toBe("Bearer sk-test");
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        explanation: "I can replace the Valencia target note.",
-        intent: "prioritization",
-        proposal: {
-          summary: "Replace Valencia target notes.",
-          operations: [
-            {
-              type: "updateTargetPlanningFields",
-              targetId: "valencia-20th",
-              notes: ["Check evening noise before applying."],
-              reason: "The note should carry more useful planning context.",
-            },
-          ],
-          confidence: "high",
-          requiresUserReview: true,
-        },
-        confidence: "high",
-        caveats: [],
-      }),
-    });
-  });
-  await page.route("**/api/map/apply-proposal", async (route) => {
-    applyProposalCalled = true;
-    await route.fulfill({
-      status: 500,
-      contentType: "application/json",
-      body: JSON.stringify({ ok: false, error: "Apply should wait for user review." }),
-    });
-  });
-
-  await loadSamplePlanningMap(page);
+test("imports map json only after replace confirmation", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await page.getByLabel("Ask the assistant").fill("Make Valencia target corridor more important");
-  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.locator(".target-anchor-marker")).toHaveCount(0);
 
-  await expect(page.getByText("Replace Valencia target notes.")).toBeVisible();
-  await expect(page.getByText("Before: Mission Dolores / Valencia reference point.")).toBeVisible();
-  await expect(page.getByText("After: Check evening noise before applying.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Apply changes" })).toBeVisible();
-  expect(applyProposalCalled).toBe(false);
+  await page.getByLabel("Import map JSON file").setInputFiles({
+    name: "sample-map.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(samplePlanningMapState)),
+  });
+
+  await expect(page.getByText("Ready to import sample-map.json.")).toBeVisible();
+  await expect(
+    page.getByText("Importing this file will replace the current map."),
+  ).toBeVisible();
+  await expect(page.locator(".target-anchor-marker")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Replace current map" }).click();
+
+  await expect(page.getByText("Imported sample-map.json.")).toBeVisible();
+  await expect(page.locator(".target-anchor-marker")).toHaveCount(3);
+  await expect
+    .poll(() =>
+      page.evaluate((key) => {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) {
+          return [];
+        }
+
+        const mapState = JSON.parse(raw) as { targets?: Array<{ id: string }> };
+        return mapState.targets?.map((target) => target.id) ?? [];
+      }, mapStateStorageKey),
+    )
+    .toContain("valencia-20th");
 });
 
-test("shows map assistant follow-up questions without proposal review", async ({ page }) => {
-  await page.route("**/api/ai/map-assistant", async (route) => {
-    expect(route.request().headers()["x-sf-apt-session"]).toBeTruthy();
+test("planning chat adds reviewed pins through an action card", async ({ page }) => {
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer sk-test");
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        kind: "needsMoreInfo",
-        assistantMessage: "Which area should I search for those studios?",
-        missingInformation: ["where to search"],
-      }),
+      body: JSON.stringify(createPlanningChatMapProposalResponse()),
+    });
+  });
+  await page.route("**/api/planning/actions/execute", async (route) => {
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningActionExecuteMapResponse()),
+    });
+  });
+
+  await page.addInitScript(({ key, value }) => {
+    window.localStorage.setItem(key, value);
+    window.sessionStorage.setItem(key, value);
+  }, { key: openAiKeyStorageKey, value: "sk-test" });
+  await page.goto("/");
+  await page.getByLabel("Ask planning chat").fill("Add pins for all Solidcore locations in SF");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Add 1 map change").first()).toBeVisible();
+  await page.getByRole("button", { name: "Apply selected" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate((key) => {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) {
+          return [];
+        }
+
+        const mapState = JSON.parse(raw) as { targets?: Array<{ id: string }> };
+        return mapState.targets?.map((target) => target.id) ?? [];
+      }, mapStateStorageKey),
+    )
+    .toContain("solidcore-fidi");
+});
+
+test("planning chat applies only selected proposal operations", async ({ page }) => {
+  let appliedOperationIndexes: number[] | null = null;
+
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningChatMultiOperationMapProposalResponse()),
+    });
+  });
+  await page.route("**/api/planning/actions/execute", async (route) => {
+    const body = route.request().postDataJSON() as {
+      payload?: { operationIndexes?: number[] };
+    };
+    appliedOperationIndexes = body.payload?.operationIndexes ?? null;
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningActionExecuteMultiOperationMapResponse()),
     });
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await page.getByLabel("Ask the assistant").fill("Add pins for nearby gyms");
+  await saveOpenAiKeyThroughUi(page);
+  await page.getByLabel("Ask planning chat").fill("Add two planning notes");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByText("Which area should I search for those studios?")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
-  await expect(page.getByText("Review proposed map changes")).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Include Add note to NOPA" })).toBeChecked();
+  await page.getByRole("checkbox", { name: "Include Add note to NOPA" }).uncheck();
+  await page.getByRole("button", { name: "Apply selected" }).click();
+
+  expect(appliedOperationIndexes).toEqual([0]);
 });
 
-test("renders listing cards and geocodes authorized candidates", async ({ page }) => {
-  let geocodeSessionHeader: string | undefined;
-
-  await page.route("**/api/ai/listing-search", async (route) => {
-    expect(route.request().headers().authorization).toBe("Bearer sk-test");
-    const body = route.request().postDataJSON();
-
-    expect(body).toMatchObject({
-      query: "Find studio listing under 3000 near Fillmore",
-      filters: {
-        maxBudget: 3000,
-        beds: "any",
-        timing: "",
-        shortTerm: false,
-        furnished: false,
-      },
-      selectedContext: {
-        zones: [],
-        corridors: expect.any(Array),
-        targets: expect.any(Array),
-      },
+test("planning chat disables proposal apply when no operations are selected", async ({ page }) => {
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningChatMultiOperationMapProposalResponse()),
     });
-    expect(body.selectedContext.corridors.length).toBeGreaterThan(0);
-    expect(
-      body.selectedContext.targets.some(
-        (target: { purpose?: unknown; coordinates?: unknown; radiusMinutes?: unknown }) =>
-          typeof target.purpose === "string" &&
-          Array.isArray(target.coordinates) &&
-          typeof target.radiusMinutes === "number",
-      ),
-    ).toBe(true);
+  });
+
+  await page.goto("/");
+  await saveOpenAiKeyThroughUi(page);
+  await page.getByLabel("Ask planning chat").fill("Add two planning notes");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await page.getByRole("checkbox", { name: "Include Add note to Lower Pac Heights" }).uncheck();
+  await page.getByRole("checkbox", { name: "Include Add note to NOPA" }).uncheck();
+
+  await expect(page.getByRole("button", { name: "Apply selected" })).toBeDisabled();
+});
+
+test("planning chat renders listing cards without persisting the listing ledger first", async ({ page }) => {
+  let geocodeRequestSeen = false;
+
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer sk-test");
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningChatListingResponse()),
+    });
+  });
+  await page.route("**/api/planning/actions/execute", async (route) => {
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    const body = route.request().postDataJSON() as {
+      payload?: Record<string, unknown>;
+    };
+
+    expect(body.payload).toMatchObject({
+      kind: "listingSave",
+      expectedListingLedgerRevision: "ledger-rev-1",
+      expectedListingSnapshotHash: "listing-snapshot-hash-1",
+    });
+    expect(body.payload && "canonicalUrl" in body.payload).toBe(false);
 
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        candidates: [
-          {
-            id: "listing-1",
-            title: "Sunny Fillmore Studio",
-            url: "https://example.com/listings/1",
-            sourceDomain: "example.com",
-            neighborhoodGuess: "Lower Pac Heights",
-            locationText: "Fillmore and California",
-            geocodeQuery: "Fillmore and California",
-            locationConfidence: "medium",
-            coordinates: null,
-            geocodeStatus: "not_attempted",
-            markerPrecision: "none",
-            priceMonthly: 2800,
-            beds: "studio",
-            shortTermSignal: false,
-            furnishedSignal: false,
-            fitScore: 4,
-            whyItFits: "Under budget near the target corridor.",
-            citations: [
-              {
-                url: "https://example.com/listings/1",
-                title: "Listing 1",
-                sourceDomain: "example.com",
-              },
-            ],
-            caveats: ["Availability can change quickly."],
-          },
-        ],
-        sourceSummary: "One listing matched.",
-        citations: [
-          {
-            url: "https://example.com/listings/1",
-            title: "Listing 1",
-            sourceDomain: "example.com",
-          },
-        ],
-        caveats: [],
-        geocodeAuthorization: {
-          nonce: "nonce-1",
-          expiresAt: new Date(Date.now() + 600_000).toISOString(),
-          maxAttempts: 1,
-          allowedQueries: [
-            {
-              candidateId: "listing-1",
-              geocodeQueryHash: "hash-1",
-            },
-          ],
-        },
-      }),
-    });
+        body: JSON.stringify(createPlanningActionExecuteListingResponse()),
+      });
   });
   await page.route("**/api/geocode/listing", async (route) => {
-    geocodeSessionHeader = route.request().headers()["x-sf-apt-session"];
+    geocodeRequestSeen = true;
+    expect(route.request().headers()["x-sf-apt-session"]).toBeTruthy();
     expect(route.request().postDataJSON()).toEqual({
       nonce: "nonce-1",
-      candidateId: "listing-1",
-      geocodeQuery: "Fillmore and California",
+      candidateId: "candidate-1",
+      geocodeQuery: "1234 Fillmore St, San Francisco, CA",
     });
+
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -481,370 +509,414 @@ test("renders listing cards and geocodes authorized candidates", async ({ page }
           status: "ok",
           coordinates: [-122.433, 37.789],
           markerPrecision: "exact",
-          formattedAddress: "Fillmore St & California St, San Francisco, CA 94115, USA",
+          formattedAddress: "1234 Fillmore St, San Francisco, CA 94115, USA",
         },
       }),
     });
   });
 
-  await loadSamplePlanningMap(page);
+  await page.addInitScript(({ key, value }) => {
+    window.sessionStorage.setItem(key, value);
+  }, { key: openAiKeyStorageKey, value: "sk-test" });
   await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await page.getByLabel("Budget").fill("3000");
-  await page.getByLabel("Ask the assistant").fill("Find studio listing under 3000 near Fillmore");
+  await page.getByLabel("Ask planning chat").fill("Find studio listings near Fillmore");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByText("Sunny Fillmore Studio")).toBeVisible();
   await expect(page.getByText("One listing matched.")).toBeVisible();
-  await expect(page.getByText("Under budget near the target corridor.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Listing 1" }).first()).toBeVisible();
-  await expect(page.getByText("Exact pin")).toBeVisible();
-  await expect(page.getByText("1 listing pin.")).toBeVisible();
-  await expect(page.getByText("New lead")).toBeVisible();
-  await expect(page.getByText("Planning score 5/5")).toBeVisible();
-  await expect(page.getByText("Within budget")).toBeVisible();
-  expect(geocodeSessionHeader).toBeTruthy();
+  await expect(page.getByRole("button", { name: "Save" }).first()).toBeVisible();
+  await expect(page.getByText("0 listings staged.")).toBeVisible();
+  await expect
+    .poll(() => page.evaluate((key) => window.localStorage.getItem(key), listingLedgerStorageKey))
+    .toBeNull();
+
+  await page.getByRole("button", { name: "Save" }).first().click();
+
+  await expect(page.getByText("1 listings staged.")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate((key) => {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) {
+          return null;
+        }
+
+        const ledger = JSON.parse(raw) as {
+          "https://example.com/listings/1"?: {
+            candidate?: { coordinates?: [number, number] | null; markerPrecision?: string };
+          };
+        };
+
+        return ledger["https://example.com/listings/1"]?.candidate ?? null;
+      }, listingLedgerStorageKey),
+    )
+    .toMatchObject({
+      coordinates: [-122.433, 37.789],
+      markerPrecision: "exact",
+    });
+  expect(geocodeRequestSeen).toBe(true);
 });
 
-test("rescores visible listing cards after map context changes without a new search", async ({ page }) => {
-  let listingSearchRequests = 0;
+test("reset local map clears planning chat cache and warns when server reset fails", async ({ page }) => {
+  await page.route("**/api/planning/reset", async (route) => {
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    expect(route.request().postDataJSON()).toEqual({ clientInstallationId: "install-1" });
 
-  await page.route("**/api/ai/listing-search", async (route) => {
-    listingSearchRequests += 1;
     await route.fulfill({
-      status: 200,
+      status: 500,
       contentType: "application/json",
-      body: JSON.stringify({
-        candidates: [
-          {
-            id: "listing-context-rescore",
-            title: "Fillmore Context Studio",
-            url: "https://example.com/listings/context-rescore",
-            sourceDomain: "example.com",
-            neighborhoodGuess: "Lower Pac Heights",
-            locationText: "Fillmore and California",
-            geocodeQuery: null,
-            locationConfidence: "high",
-            coordinates: [-122.433, 37.789],
-            geocodeStatus: "geocoded_exact",
-            markerPrecision: "exact",
-            priceMonthly: 2800,
-            beds: "studio",
-            shortTermSignal: false,
-            furnishedSignal: false,
-            fitScore: 4,
-            whyItFits: "Under budget near the target corridor.",
-            citations: [
-              {
-                url: "https://example.com/listings/context-rescore",
-                title: "Context Listing",
-                sourceDomain: "example.com",
-              },
-            ],
-            caveats: [],
-          },
-        ],
-        sourceSummary: "One context listing matched.",
-        citations: [
-          {
-            url: "https://example.com/listings/context-rescore",
-            title: "Context Listing",
-            sourceDomain: "example.com",
-          },
-        ],
-        caveats: [],
-        geocodeAuthorization: null,
-      }),
+      body: JSON.stringify({ ok: false, error: "Server reset failed." }),
     });
   });
 
-  await loadSamplePlanningMap(page);
-  await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await page.getByLabel("Budget").fill("3000");
-  await page.getByLabel("Ask the assistant").fill("Find Fillmore studio listing");
-  await page.getByRole("button", { name: "Send" }).click();
-
-  await expect(page.getByRole("link", { name: "Fillmore Context Studio" })).toBeVisible();
-  await expect(page.getByText("Planning score 5/5")).toBeVisible();
-  await expect(page.getByText("Near Lower Pac Heights reference point")).toBeVisible();
-
-  await page.getByTitle("Lower Pac Heights reference point · Fillmore & California").click();
-  await page.getByLabel("Target influence").selectOption("negative");
-
-  await expect(page.getByText("Planning score 3/5")).toBeVisible();
-  await expect(page.getByText("Near avoided Lower Pac Heights reference point")).toBeVisible();
-  await expect(page.getByText("Near Lower Pac Heights reference point")).toHaveCount(0);
-  expect(listingSearchRequests).toBe(1);
-});
-
-test("shows a repeated listing URL as seen before after reload", async ({ page }) => {
-  await page.route("**/api/ai/listing-search", async (route) => {
-    expect(route.request().headers().authorization).toBe("Bearer sk-test");
-
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        candidates: [
-          {
-            id: "listing-repeat",
-            title: "Repeat Fillmore Studio",
-            url: "https://example.com/listings/repeat?utm_source=agent",
-            sourceDomain: "example.com",
-            neighborhoodGuess: "Lower Pac Heights",
-            locationText: "Fillmore and California",
-            geocodeQuery: "Fillmore and California",
-            locationConfidence: "medium",
-            coordinates: [-122.433, 37.789],
-            geocodeStatus: "geocoded_exact",
-            markerPrecision: "exact",
-            priceMonthly: 2800,
-            beds: "studio",
-            shortTermSignal: false,
-            furnishedSignal: false,
-            fitScore: 4,
-            whyItFits: "Still a strong Fillmore match.",
-            citations: [
-              {
-                url: "https://example.com/listings/repeat?utm_source=agent",
-                title: "Repeat Listing",
-                sourceDomain: "example.com",
-              },
-            ],
-            caveats: [],
-          },
-        ],
-        sourceSummary: "One repeat listing matched.",
-        citations: [
-          {
-            url: "https://example.com/listings/repeat?utm_source=agent",
-            title: "Repeat Listing",
-            sourceDomain: "example.com",
-          },
-        ],
-        caveats: [],
-        geocodeAuthorization: null,
-      }),
-    });
-  });
+  await page.addInitScript(
+    ({ cacheKey, installationKey, ledgerKey, mapKey, threadCache, installation, listingLedger, mapState, value }) => {
+      window.sessionStorage.setItem(value.key, value.apiKey);
+      window.localStorage.setItem(cacheKey, JSON.stringify(threadCache));
+      window.localStorage.setItem(installationKey, JSON.stringify(installation));
+      window.localStorage.setItem(ledgerKey, JSON.stringify(listingLedger));
+      window.localStorage.setItem(mapKey, JSON.stringify(mapState));
+    },
+    {
+      cacheKey: planningThreadCacheStorageKey,
+      installationKey: planningInstallationStorageKey,
+      ledgerKey: listingLedgerStorageKey,
+      mapKey: mapStateStorageKey,
+      threadCache: createPlanningThreadCache(),
+      installation: {
+        clientInstallationId: "install-1",
+        clientInstallationSecret: "secret-1",
+      },
+      listingLedger: {
+        "https://example.com/listings/1": createPlanningActionExecuteListingResponse().listingLead,
+      },
+      mapState: samplePlanningMapState,
+      value: { key: openAiKeyStorageKey, apiKey: "sk-test" },
+    },
+  );
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await page.getByLabel("Ask the assistant").fill("Find repeat Fillmore studio");
-  await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByRole("link", { name: "Repeat Fillmore Studio" })).toBeVisible();
-  await expect(page.getByText("New lead")).toBeVisible();
-
-  await page.reload();
-  await expect(page.getByLabel("Ask the assistant")).toBeEnabled();
-  await page.getByLabel("Ask the assistant").fill("Find repeat Fillmore studio");
-  await page.getByRole("button", { name: "Send" }).click();
-
-  await expect(page.getByRole("link", { name: "Repeat Fillmore Studio" })).toBeVisible();
-  await expect(page.getByText("Seen before")).toBeVisible();
-  await expect(page.getByText("New lead")).toHaveCount(0);
-});
-
-test("ignores a listing search response that resolves after reset", async ({ page }) => {
-  let releaseListingResponse: () => void = () => {};
-  const listingResponseRelease = new Promise<void>((resolve) => {
-    releaseListingResponse = resolve;
-  });
-  let markListingRequestStarted: () => void = () => {};
-  const listingRequestStarted = new Promise<void>((resolve) => {
-    markListingRequestStarted = resolve;
-  });
-
-  await page.route("**/api/ai/listing-search", async (route) => {
-    markListingRequestStarted();
-    await listingResponseRelease;
-
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        candidates: [
-          {
-            id: "listing-after-reset",
-            title: "Delayed Reset Studio",
-            url: "https://example.com/listings/after-reset",
-            sourceDomain: "example.com",
-            neighborhoodGuess: "Lower Pac Heights",
-            locationText: "Fillmore and California",
-            geocodeQuery: null,
-            locationConfidence: "low",
-            coordinates: null,
-            geocodeStatus: "not_attempted",
-            markerPrecision: "none",
-            priceMonthly: 2800,
-            beds: "studio",
-            shortTermSignal: false,
-            furnishedSignal: false,
-            fitScore: 4,
-            whyItFits: "Should not repopulate after reset.",
-            citations: [
-              {
-                url: "https://example.com/listings/after-reset",
-                title: "Delayed Listing",
-                sourceDomain: "example.com",
-              },
-            ],
-            caveats: [],
-          },
-        ],
-        sourceSummary: "A delayed listing matched.",
-        citations: [
-          {
-            url: "https://example.com/listings/after-reset",
-            title: "Delayed Listing",
-            sourceDomain: "example.com",
-          },
-        ],
-        caveats: [],
-        geocodeAuthorization: null,
-      }),
-    });
-  });
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await page.getByLabel("Ask the assistant").fill("Find delayed reset studio");
-  await page.getByRole("button", { name: "Send" }).click();
-  await listingRequestStarted;
+  await expect(page.getByText("I found 1 listing candidate.")).toBeVisible();
+  await expect
+    .poll(() => page.evaluate((key) => window.localStorage.getItem(key), planningThreadCacheStorageKey))
+    .not.toBeNull();
+  await expect
+    .poll(() => page.evaluate((key) => window.localStorage.getItem(key), listingLedgerStorageKey))
+    .not.toBeNull();
 
   await page.getByRole("button", { name: "Reset local map" }).click();
-  releaseListingResponse();
-  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
 
-  await expect(page.getByRole("link", { name: "Delayed Reset Studio" })).toHaveCount(0);
-  await expect(page.getByText("No listing candidates yet.")).toBeVisible();
+  await expect(page.getByText("Server planning history could not be cleared.")).toBeVisible();
+  await expect(page.getByText("No planning chat messages yet.")).toBeVisible();
+  await expect(page.getByText("0 listings staged.")).toBeVisible();
+  await expect(
+    page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
+  ).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate((key) => window.localStorage.getItem(key), planningThreadCacheStorageKey))
+    .toBeNull();
   await expect
     .poll(() => page.evaluate((key) => window.localStorage.getItem(key), listingLedgerStorageKey))
     .toBeNull();
 });
 
-test("ignores a listing search failure that resolves after reset", async ({ page }) => {
-  let releaseListingResponse: () => void = () => {};
-  const listingResponseRelease = new Promise<void>((resolve) => {
-    releaseListingResponse = resolve;
+test("reset local map ignores an in-flight planning chat response", async ({ page }) => {
+  let releasePlanningChatResponse: () => void = () => {};
+  const planningChatResponseReleased = new Promise<void>((resolve) => {
+    releasePlanningChatResponse = resolve;
   });
-  let markListingRequestStarted: () => void = () => {};
-  const listingRequestStarted = new Promise<void>((resolve) => {
-    markListingRequestStarted = resolve;
+  let markPlanningChatRequestStarted: () => void = () => {};
+  const planningChatRequestStarted = new Promise<void>((resolve) => {
+    markPlanningChatRequestStarted = resolve;
   });
 
-  await page.route("**/api/ai/listing-search", async (route) => {
-    markListingRequestStarted();
-    await listingResponseRelease;
-
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer sk-test");
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    markPlanningChatRequestStarted();
+    await planningChatResponseReleased;
     await route.fulfill({
-      status: 500,
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningChatMapProposalResponse()),
+    });
+  });
+  await page.route("**/api/planning/reset", async (route) => {
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+
+  await page.addInitScript(({ key, value }) => {
+    window.localStorage.setItem(key, value);
+    window.sessionStorage.setItem(key, value);
+  }, { key: openAiKeyStorageKey, value: "sk-test" });
+  await page.goto("/");
+  await page.getByLabel("Ask planning chat").fill("Add pins for all Solidcore locations in SF");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  try {
+    await planningChatRequestStarted;
+    await expect(page.getByRole("button", { name: "Sending..." })).toBeVisible();
+    await page.getByRole("button", { name: "Reset local map" }).click();
+
+    await expect(page.getByText("No planning chat messages yet.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+
+    releasePlanningChatResponse();
+    await expect(page.getByText("Add 1 map change").first()).toHaveCount(0);
+    await expect(page.getByText("No planning chat messages yet.")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate((key) => window.localStorage.getItem(key), planningThreadCacheStorageKey),
+      )
+      .toBeNull();
+  } finally {
+    releasePlanningChatResponse();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+});
+
+test("planning chat clears stale local thread cache when server memory is lost", async ({ page }) => {
+  let requestCount = 0;
+
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    requestCount += 1;
+    const body = route.request().postDataJSON() as { threadId: string | null };
+
+    if (requestCount === 1) {
+      expect(body.threadId).toBe("thread-1");
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          error: "Planning thread is not owned by this installation.",
+        }),
+      });
+      return;
+    }
+
+    expect(body.threadId).toBeNull();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningChatMapProposalResponse()),
+    });
+  });
+
+  await page.addInitScript(
+    ({ cacheKey, installationKey, threadCache, installation, value }) => {
+      window.sessionStorage.setItem(value.key, value.apiKey);
+      window.localStorage.setItem(cacheKey, JSON.stringify(threadCache));
+      window.localStorage.setItem(installationKey, JSON.stringify(installation));
+    },
+    {
+      cacheKey: planningThreadCacheStorageKey,
+      installationKey: planningInstallationStorageKey,
+      threadCache: createPlanningThreadCache(),
+      installation: {
+        clientInstallationId: "install-1",
+        clientInstallationSecret: "secret-1",
+      },
+      value: { key: openAiKeyStorageKey, apiKey: "sk-test" },
+    },
+  );
+
+  await page.goto("/");
+  await expect(page.getByText("I found 1 listing candidate.")).toBeVisible();
+
+  await page.getByLabel("Ask planning chat").fill("Add pins for all CorePower locations in SF");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect.poll(() => requestCount).toBe(2);
+  await expect(page.getByText("Planning thread is not owned by this installation.")).toHaveCount(0);
+  await expect(page.getByText("Planning proposal ready for review.")).toBeVisible();
+  await expect(page.getByText("Add 1 map change").first()).toBeVisible();
+});
+
+test("planning chat clears stale action cards when server action memory is lost", async ({ page }) => {
+  await page.route("**/api/planning/actions/execute", async (route) => {
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    await route.fulfill({
+      status: 403,
       contentType: "application/json",
       body: JSON.stringify({
         ok: false,
-        error: "Delayed listing search failure.",
+        error: "Planning action is not owned by this installation.",
       }),
     });
   });
 
+  const staleResponse = createPlanningChatMapProposalResponse();
+  await page.addInitScript(
+    ({ cacheKey, installationKey, threadCache, installation, value }) => {
+      window.sessionStorage.setItem(value.key, value.apiKey);
+      window.localStorage.setItem(cacheKey, JSON.stringify(threadCache));
+      window.localStorage.setItem(installationKey, JSON.stringify(installation));
+    },
+    {
+      cacheKey: planningThreadCacheStorageKey,
+      installationKey: planningInstallationStorageKey,
+      threadCache: {
+        thread: staleResponse.thread,
+        messages: [staleResponse.userMessage, staleResponse.assistantMessage],
+        actionRecords: staleResponse.actionRecords,
+        contextSummary: staleResponse.contextSummary,
+        contextSummariesByMessageId: {
+          [staleResponse.assistantMessage.id]: staleResponse.contextSummary,
+        },
+        mapSnapshot: staleResponse.mapSnapshot,
+        listingLedgerRevision: staleResponse.listingLedgerRevision,
+      },
+      installation: {
+        clientInstallationId: "install-1",
+        clientInstallationSecret: "secret-1",
+      },
+      value: { key: openAiKeyStorageKey, apiKey: "sk-test" },
+    },
+  );
+
   await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await page.getByLabel("Ask the assistant").fill("Find delayed failing listing");
-  await page.getByRole("button", { name: "Send" }).click();
-  await listingRequestStarted;
+  await expect(page.getByText("Add 1 map change").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Reset local map" }).click();
-  releaseListingResponse();
+  await page.getByRole("button", { name: "Apply selected" }).click();
 
-  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+  await expect(page.getByText("No planning chat messages yet.")).toBeVisible();
   await expect(
-    page.getByText("Listing search could not be completed. Try again with a narrower request."),
-  ).toHaveCount(0);
-  await expect(page.getByText("Ready to send a request.")).toBeVisible();
-  await expect(page.getByText("No listing candidates yet.")).toBeVisible();
+    page.getByText("That planning action expired. I cleared the stale chat; send the request again."),
+  ).toBeVisible();
+  await expect(page.getByText("Planning action is not owned by this installation.")).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate((key) => window.localStorage.getItem(key), planningThreadCacheStorageKey))
+    .toBeNull();
 });
 
-test("undoes applied map changes with Ctrl+Z or Cmd+Z", async ({ page }) => {
-  await page.route("**/api/ai/map-assistant", async (route) => {
+test("planning chat shows follow-up questions without rendering action cards", async ({ page }) => {
+  await page.route("**/api/ai/planning-chat", async (route) => {
     expect(route.request().headers().authorization).toBe("Bearer sk-test");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        explanation: "I can raise Polk priority.",
-        intent: "prioritization",
-        proposal: {
-          summary: "Raise Polk priority.",
-          operations: [
-            {
-              type: "updateCorridorPriority",
-              corridorId: "polk",
-              priority: "high",
-              reason: "Closer to the requested north-side search area.",
-            },
-          ],
-          confidence: "high",
-          requiresUserReview: true,
-        },
-        confidence: "high",
-        caveats: [],
-      }),
+      body: JSON.stringify(createPlanningChatFollowUpResponse()),
+    });
+  });
+
+  await page.addInitScript(({ key, value }) => {
+    window.sessionStorage.setItem(key, value);
+  }, { key: openAiKeyStorageKey, value: "sk-test" });
+  await page.goto("/");
+  await page.getByLabel("Ask planning chat").fill("Add pins for nearby gyms");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Which neighborhoods should I prioritize for the gym search?")).toBeVisible();
+  await expect(page.getByText("where to search")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply selected" })).toHaveCount(0);
+});
+
+test("planning chat persists dismissed listing cards across refresh", async ({ page }) => {
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer sk-test");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningChatListingResponse()),
+    });
+  });
+  await page.route("**/api/planning/actions/execute", async (route) => {
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    const body = route.request().postDataJSON() as {
+      payload?: Record<string, unknown>;
+    };
+
+    expect(body.payload).toMatchObject({
+      kind: "listingDismiss",
+      expectedListingLedgerRevision: "ledger-rev-1",
+      expectedListingSnapshotHash: "listing-snapshot-hash-1",
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningActionExecuteListingDismissResponse()),
+    });
+  });
+
+  await page.addInitScript(({ key, value }) => {
+    window.sessionStorage.setItem(key, value);
+  }, { key: openAiKeyStorageKey, value: "sk-test" });
+  await page.goto("/");
+  await page.getByLabel("Ask planning chat").fill("Find studio listings near Fillmore");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Apartment planning")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Studio near Fillmore" })).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss" }).first().click();
+
+  await expect(page.getByText("Dismissed")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss" }).first()).toBeDisabled();
+
+  await page.reload();
+
+  await expect(page.getByText("Apartment planning")).toBeVisible();
+  await expect(page.getByText("I found 1 listing candidate.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Studio near Fillmore" })).toBeVisible();
+  await expect(page.getByText("Dismissed")).toBeVisible();
+});
+
+test("undoes planning chat map actions with Ctrl+Z or Cmd+Z", async ({ page }) => {
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer sk-test");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningChatCorridorPriorityResponse()),
+    });
+  });
+  await page.route("**/api/planning/actions/execute", async (route) => {
+    expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createPlanningActionExecuteCorridorPriorityResponse()),
     });
   });
 
   await loadSamplePlanningMap(page);
+  await page.addInitScript(({ key, value }) => {
+    window.sessionStorage.setItem(key, value);
+  }, { key: openAiKeyStorageKey, value: "sk-test" });
   await page.goto("/");
-  await page.getByRole("button", { name: "Add OpenAI key" }).click();
-  await page.getByLabel("OpenAI API key").fill("sk-test");
-  await page.getByRole("button", { name: "Save key" }).click();
 
   await applyPolkPriorityProposal(page);
-  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("high");
+  await clickPolkCorridor(page);
+  await expect(page.getByLabel("Corridor priority")).toHaveValue("high");
 
+  await page.getByRole("heading", { name: "SF Apartment Hunt" }).click();
   await page.keyboard.press("Control+Z");
-  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("medium");
+  await expect(page.getByLabel("Corridor priority")).toHaveValue("medium");
 
   await applyPolkPriorityProposal(page);
-  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("high");
+  await clickPolkCorridor(page);
+  await expect(page.getByLabel("Corridor priority")).toHaveValue("high");
 
+  await page.getByRole("heading", { name: "SF Apartment Hunt" }).click();
   await page.keyboard.press("Meta+Z");
-  await expect.poll(() => readCorridorPriority(page, "polk")).toBe("medium");
+  await expect(page.getByLabel("Corridor priority")).toHaveValue("medium");
 });
 
 async function applyPolkPriorityProposal(page: Page) {
-  await page.getByLabel("Ask the assistant").fill("Make Polk corridor high priority");
+  await page.getByLabel("Ask planning chat").fill("Make Polk corridor high priority");
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByText("Raise Polk priority.")).toBeVisible();
-  await page.getByRole("button", { name: "Apply changes" }).click();
-}
-
-async function readCorridorPriority(page: Page, corridorId: string) {
-  return page.evaluate(
-    ({ key, id }) => {
-      const storedMapState = window.localStorage.getItem(key);
-      if (!storedMapState) {
-        return null;
-      }
-
-      const mapState = JSON.parse(storedMapState) as {
-        corridors?: Array<{ id: string; priority: string }>;
-      };
-      return mapState.corridors?.find((corridor) => corridor.id === id)?.priority ?? null;
-    },
-    { key: mapStateStorageKey, id: corridorId },
-  );
+  const proposalCards = page.getByText("Raise Polk priority.");
+  const proposalCount = await proposalCards.count();
+  await expect(proposalCards.nth(proposalCount - 1)).toBeVisible();
+  const applyButtons = page.getByRole("button", { name: "Apply selected" });
+  const applyButtonCount = await applyButtons.count();
+  await applyButtons.nth(applyButtonCount - 1).click();
 }
 
 async function loadSamplePlanningMap(page: Page) {
@@ -856,6 +928,13 @@ async function loadSamplePlanningMap(page: Page) {
     },
     { key: mapStateStorageKey, state: samplePlanningMapState },
   );
+}
+
+async function saveOpenAiKeyThroughUi(page: Page) {
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await expect(page.getByRole("heading", { name: "OpenAI key saved" })).toBeVisible();
 }
 
 async function clickPolkCorridor(page: Page) {
@@ -892,4 +971,713 @@ async function isCorridorEditorVisible(page: Page) {
   } catch {
     return false;
   }
+}
+
+function createPlanningChatMapProposalResponse() {
+  return {
+    thread: {
+      id: "thread-1",
+      clientInstallationId: "install-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:00.000Z",
+      title: "Solidcore planning",
+      summary: "Reviewed fitness pins",
+    },
+    userMessage: {
+      id: "message-user-1",
+      threadId: "thread-1",
+      role: "user",
+      parts: [{ type: "text", text: "Add pins for all Solidcore locations in SF" }],
+      createdAt: "2026-06-18T12:00:00.000Z",
+    },
+    assistantMessage: {
+      id: "message-assistant-1",
+      threadId: "thread-1",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "I found one reviewed map change." },
+        {
+          type: "mapProposal",
+          actionId: "action-map-1",
+          proposal: {
+            summary: "Add 1 map change",
+            confidence: "high",
+            requiresUserReview: true,
+            operations: [
+              {
+                type: "addTarget",
+                target: {
+                  id: "solidcore-fidi",
+                  name: "Solidcore",
+                  purpose: "fitness class",
+                  coordinates: [-122.4006, 37.7936],
+                  priority: "medium",
+                  influence: "positive",
+                  radiusMinutes: 10,
+                  notes: [],
+                },
+              },
+            ],
+          },
+          researchSummary: null,
+        },
+      ],
+      createdAt: "2026-06-18T12:00:01.000Z",
+    },
+    contextSummary: {
+      budget: null,
+      beds: null,
+      timing: null,
+      furnished: null,
+      shortTerm: null,
+      positiveAnchors: [],
+      avoidAnchors: [],
+      selectedZones: [],
+      sourceStrictness: null,
+    },
+    actionRecords: [
+      {
+        id: "action-map-1",
+        threadId: "thread-1",
+        messageId: "message-assistant-1",
+        partIndex: 1,
+        kind: "mapProposal",
+        target: {
+          kind: "mapProposal",
+          messageId: "message-assistant-1",
+          partIndex: 1,
+          proposalHash: "proposal-hash-1",
+          allowedOperationIndexes: [0],
+          mapRevision: "map-rev-1",
+        },
+        status: "pending",
+        createdAt: "2026-06-18T12:00:01.000Z",
+        updatedAt: "2026-06-18T12:00:01.000Z",
+      },
+    ],
+    mapSnapshot: {
+      id: "snapshot-1",
+      threadId: "thread-1",
+      clientInstallationId: "install-1",
+      mapState: seedMapState,
+      revision: "map-rev-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:00.000Z",
+    },
+    listingLedgerRevision: "ledger-rev-1",
+  };
+}
+
+function createPlanningChatMultiOperationMapProposalResponse() {
+  const response = createPlanningChatMapProposalResponse();
+  const proposalPart = response.assistantMessage.parts[1];
+
+  if (proposalPart.type !== "mapProposal") {
+    throw new Error("Expected map proposal fixture.");
+  }
+
+  return {
+    ...response,
+    thread: {
+      ...response.thread,
+      id: "thread-multi-1",
+      title: "Multi-operation planning",
+    },
+    userMessage: {
+      ...response.userMessage,
+      id: "message-user-multi-1",
+      threadId: "thread-multi-1",
+      parts: [{ type: "text", text: "Add two planning notes" }],
+    },
+    assistantMessage: {
+      ...response.assistantMessage,
+      id: "message-assistant-multi-1",
+      threadId: "thread-multi-1",
+      parts: [
+        { type: "text", text: "I found two reviewed map changes." },
+        {
+          ...proposalPart,
+          actionId: "action-map-multi-1",
+          proposal: {
+            ...proposalPart.proposal,
+            summary: "Add two planning notes",
+            operations: [
+              {
+                type: "addNote",
+                entityId: "lower-pac-heights",
+                note: "Lower Pac Heights has strong walkability context.",
+              },
+              {
+                type: "addNote",
+                entityId: "nopa",
+                note: "NOPA should be reviewed for commute tradeoffs.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    actionRecords: [
+      {
+        ...response.actionRecords[0],
+        id: "action-map-multi-1",
+        threadId: "thread-multi-1",
+        messageId: "message-assistant-multi-1",
+        target: {
+          kind: "mapProposal",
+          messageId: "message-assistant-multi-1",
+          partIndex: 1,
+          proposalHash: "proposal-hash-multi-1",
+          allowedOperationIndexes: [0, 1],
+          mapRevision: "map-rev-1",
+        },
+      },
+    ],
+    mapSnapshot: {
+      ...response.mapSnapshot,
+      threadId: "thread-multi-1",
+    },
+  };
+}
+
+function createPlanningActionExecuteMapResponse() {
+  const nextMapState = {
+    ...seedMapState,
+    targets: [
+      ...seedMapState.targets,
+      {
+        id: "solidcore-fidi",
+        name: "Solidcore",
+        purpose: "fitness class",
+        coordinates: [-122.4006, 37.7936] as [number, number],
+        priority: "medium" as const,
+        influence: "positive" as const,
+        radiusMinutes: 10 as const,
+        notes: [],
+      },
+    ],
+  };
+
+  return {
+    ok: true,
+    action: {
+      id: "action-map-1",
+      threadId: "thread-1",
+      messageId: "message-assistant-1",
+      partIndex: 1,
+      kind: "mapProposal",
+      target: {
+        kind: "mapProposal",
+        messageId: "message-assistant-1",
+        partIndex: 1,
+        proposalHash: "proposal-hash-1",
+        allowedOperationIndexes: [0],
+        mapRevision: "map-rev-1",
+      },
+      status: "applied",
+      createdAt: "2026-06-18T12:00:01.000Z",
+      updatedAt: "2026-06-18T12:00:02.000Z",
+    },
+    execution: {
+      id: "exec-1",
+      actionId: "action-map-1",
+      idempotencyKey: "idem-1",
+      payloadHash: "payload-hash-1",
+      status: "succeeded",
+      createdAt: "2026-06-18T12:00:02.000Z",
+    },
+    mapSnapshot: {
+      id: "snapshot-2",
+      threadId: "thread-1",
+      clientInstallationId: "install-1",
+      revision: "map-rev-2",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:02.000Z",
+      mapState: nextMapState,
+    },
+    mapState: nextMapState,
+  };
+}
+
+function createPlanningActionExecuteMultiOperationMapResponse() {
+  const response = createPlanningActionExecuteMapResponse();
+
+  return {
+    ...response,
+    action: {
+      ...response.action,
+      id: "action-map-multi-1",
+      threadId: "thread-multi-1",
+      messageId: "message-assistant-multi-1",
+      target: {
+        kind: "mapProposal",
+        messageId: "message-assistant-multi-1",
+        partIndex: 1,
+        proposalHash: "proposal-hash-multi-1",
+        allowedOperationIndexes: [0, 1],
+        mapRevision: "map-rev-1",
+      },
+    },
+    execution: {
+      ...response.execution,
+      actionId: "action-map-multi-1",
+    },
+    mapSnapshot: {
+      ...response.mapSnapshot,
+      threadId: "thread-multi-1",
+    },
+  };
+}
+
+function createPlanningActionExecuteListingResponse() {
+  const listingCandidate = {
+    id: "candidate-1",
+    title: "Studio near Fillmore",
+    url: "https://example.com/listings/1",
+    sourceDomain: "example.com",
+    neighborhoodGuess: "Lower Pac Heights",
+    locationText: "1234 Fillmore St",
+    geocodeQuery: "1234 Fillmore St, San Francisco, CA",
+    locationConfidence: "medium",
+    coordinates: null,
+    geocodeStatus: "not_attempted",
+    markerPrecision: "none",
+    priceMonthly: 2800,
+    beds: "studio",
+    shortTermSignal: false,
+    furnishedSignal: false,
+    fitScore: 5,
+    whyItFits: "Close to Fillmore and under budget.",
+    citations: [
+      {
+        url: "https://example.com/listings/1",
+        title: "Studio near Fillmore",
+        sourceDomain: "example.com",
+      },
+    ],
+    caveats: [],
+  };
+
+  return {
+    ok: true,
+    action: {
+      id: "listing-save-1",
+      threadId: "thread-1",
+      messageId: "message-assistant-1",
+      partIndex: 1,
+      kind: "listingSave",
+      target: {
+        kind: "listingLead",
+        resultSetId: "result-set-1",
+        canonicalUrl: listingCandidate.url,
+        listingSnapshotHash: "listing-snapshot-hash-1",
+        listingLedgerRevision: "ledger-rev-1",
+      },
+      status: "applied",
+      createdAt: "2026-06-18T12:00:01.000Z",
+      updatedAt: "2026-06-18T12:00:02.000Z",
+    },
+    execution: {
+      id: "exec-2",
+      actionId: "listing-save-1",
+      idempotencyKey: "idem-2",
+      payloadHash: "payload-hash-2",
+      status: "succeeded",
+      createdAt: "2026-06-18T12:00:02.000Z",
+    },
+    listingLead: {
+      canonicalUrl: listingCandidate.url,
+      firstSeenAt: "2026-06-18T12:00:01.000Z",
+      lastSeenAt: "2026-06-18T12:00:02.000Z",
+      lastSearchQuery: "Find studio listings near Fillmore",
+      seenCount: 1,
+      status: "saved",
+      candidate: listingCandidate,
+    },
+    listingLedgerRevision: "ledger-rev-2",
+  };
+}
+
+function createPlanningActionExecuteListingDismissResponse() {
+  const response = createPlanningActionExecuteListingResponse();
+
+  return {
+    ...response,
+    action: {
+      ...response.action,
+      id: "listing-dismiss-1",
+      kind: "listingDismiss",
+    },
+    execution: {
+      ...response.execution,
+      id: "exec-3",
+      actionId: "listing-dismiss-1",
+      idempotencyKey: "idem-3",
+      payloadHash: "payload-hash-3",
+    },
+    listingLead: {
+      ...response.listingLead,
+      status: "dismissed",
+    },
+  };
+}
+
+function createPlanningThreadCache() {
+  const response = createPlanningChatListingResponse();
+
+  return {
+    thread: response.thread,
+    messages: [response.userMessage, response.assistantMessage],
+    actionRecords: response.actionRecords,
+    contextSummary: response.contextSummary,
+    contextSummariesByMessageId: {
+      [response.assistantMessage.id]: response.contextSummary,
+    },
+    mapSnapshot: response.mapSnapshot,
+    listingLedgerRevision: response.listingLedgerRevision,
+  };
+}
+
+function createPlanningChatFollowUpResponse() {
+  return {
+    thread: {
+      id: "thread-follow-up-1",
+      clientInstallationId: "install-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:01.000Z",
+      title: "Gym planning",
+      summary: "",
+    },
+    userMessage: {
+      id: "message-user-follow-up-1",
+      threadId: "thread-follow-up-1",
+      role: "user",
+      parts: [{ type: "text", text: "Add pins for nearby gyms" }],
+      createdAt: "2026-06-18T12:00:00.000Z",
+    },
+    assistantMessage: {
+      id: "message-assistant-follow-up-1",
+      threadId: "thread-follow-up-1",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "I need one detail before I can search." },
+        {
+          type: "followUpQuestion",
+          question: "Which neighborhoods should I prioritize for the gym search?",
+          missingInformation: ["where to search"],
+        },
+      ],
+      createdAt: "2026-06-18T12:00:01.000Z",
+    },
+    contextSummary: {
+      budget: null,
+      beds: null,
+      timing: null,
+      furnished: null,
+      shortTerm: null,
+      positiveAnchors: [],
+      avoidAnchors: [],
+      selectedZones: [],
+      sourceStrictness: null,
+    },
+    actionRecords: [],
+    mapSnapshot: {
+      id: "snapshot-follow-up-1",
+      threadId: "thread-follow-up-1",
+      clientInstallationId: "install-1",
+      mapState: seedMapState,
+      revision: "map-rev-follow-up-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:00.000Z",
+    },
+    listingLedgerRevision: "ledger-rev-1",
+  };
+}
+
+function createPlanningChatCorridorPriorityResponse() {
+  return {
+    thread: {
+      id: "thread-corridor-1",
+      clientInstallationId: "install-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:01.000Z",
+      title: "Corridor planning",
+      summary: "",
+    },
+    userMessage: {
+      id: "message-user-corridor-1",
+      threadId: "thread-corridor-1",
+      role: "user",
+      parts: [{ type: "text", text: "Make Polk corridor high priority" }],
+      createdAt: "2026-06-18T12:00:00.000Z",
+    },
+    assistantMessage: {
+      id: "message-assistant-corridor-1",
+      threadId: "thread-corridor-1",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "I found one reviewed corridor change." },
+        {
+          type: "mapProposal",
+          actionId: "action-corridor-priority-1",
+          proposal: {
+            summary: "Raise Polk priority.",
+            confidence: "high",
+            requiresUserReview: true,
+            operations: [
+              {
+                type: "updateCorridorPriority",
+                corridorId: "polk",
+                priority: "high",
+                reason: "Closer to the requested north-side search area.",
+              },
+            ],
+          },
+          researchSummary: null,
+        },
+      ],
+      createdAt: "2026-06-18T12:00:01.000Z",
+    },
+    contextSummary: {
+      budget: null,
+      beds: null,
+      timing: null,
+      furnished: null,
+      shortTerm: null,
+      positiveAnchors: [],
+      avoidAnchors: [],
+      selectedZones: [],
+      sourceStrictness: null,
+    },
+    actionRecords: [
+      {
+        id: "action-corridor-priority-1",
+        threadId: "thread-corridor-1",
+        messageId: "message-assistant-corridor-1",
+        partIndex: 1,
+        kind: "mapProposal",
+        target: {
+          kind: "mapProposal",
+          messageId: "message-assistant-corridor-1",
+          partIndex: 1,
+          proposalHash: "proposal-corridor-priority-1",
+          allowedOperationIndexes: [0],
+          mapRevision: "map-rev-1",
+        },
+        status: "pending",
+        createdAt: "2026-06-18T12:00:01.000Z",
+        updatedAt: "2026-06-18T12:00:01.000Z",
+      },
+    ],
+    mapSnapshot: {
+      id: "snapshot-corridor-1",
+      threadId: "thread-corridor-1",
+      clientInstallationId: "install-1",
+      mapState: samplePlanningMapState,
+      revision: "map-rev-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:00.000Z",
+    },
+    listingLedgerRevision: "ledger-rev-1",
+  };
+}
+
+function createPlanningChatListingResponse() {
+  const listingCandidate = {
+    id: "candidate-1",
+    title: "Studio near Fillmore",
+    url: "https://example.com/listings/1",
+    sourceDomain: "example.com",
+    neighborhoodGuess: "Lower Pac Heights",
+    locationText: "1234 Fillmore St",
+    geocodeQuery: "1234 Fillmore St, San Francisco, CA",
+    locationConfidence: "medium",
+    coordinates: null,
+    geocodeStatus: "not_attempted",
+    markerPrecision: "none",
+    priceMonthly: 2800,
+    beds: "studio",
+    shortTermSignal: false,
+    furnishedSignal: false,
+    fitScore: 5,
+    whyItFits: "Close to Fillmore and under budget.",
+    citations: [
+      {
+        url: "https://example.com/listings/1",
+        title: "Studio near Fillmore",
+        sourceDomain: "example.com",
+      },
+    ],
+    caveats: [],
+  };
+
+  return {
+    thread: {
+      id: "thread-1",
+      clientInstallationId: "install-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:01.000Z",
+      title: "Apartment planning",
+      summary: "",
+    },
+    userMessage: {
+      id: "message-user-1",
+      threadId: "thread-1",
+      role: "user",
+      parts: [{ type: "text", text: "Find studio listings near Fillmore" }],
+      createdAt: "2026-06-18T12:00:01.000Z",
+    },
+    assistantMessage: {
+      id: "message-assistant-1",
+      threadId: "thread-1",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "I found 1 listing candidate." },
+        {
+          type: "listingResults",
+          resultSetId: "result-set-1",
+          sourceSummary: "One listing matched.",
+          caveats: ["Inventory changes quickly."],
+          geocodeAuthorization: {
+            nonce: "nonce-1",
+            expiresAt: "2026-06-19T12:10:00.000Z",
+            maxAttempts: 1,
+            allowedQueries: [{ candidateId: listingCandidate.id, geocodeQueryHash: "hash-1" }],
+          },
+          listings: [
+            {
+              lead: {
+                canonicalUrl: listingCandidate.url,
+                firstSeenAt: "2026-06-18T12:00:01.000Z",
+                lastSeenAt: "2026-06-18T12:00:01.000Z",
+                lastSearchQuery: "Find studio listings near Fillmore",
+                seenCount: 1,
+                status: "seen",
+                candidate: listingCandidate,
+              },
+              display: {
+                ...listingCandidate,
+                canonicalUrl: listingCandidate.url,
+                firstSeenAt: "2026-06-18T12:00:01.000Z",
+                lastSeenAt: "2026-06-18T12:00:01.000Z",
+                seenCount: 1,
+                planningScore: 5,
+                leadStatus: "seen",
+                planningSignals: ["Near Fillmore"],
+              },
+              saveActionId: "listing-save-1",
+              dismissActionId: "listing-dismiss-1",
+            },
+          ],
+        },
+      ],
+      createdAt: "2026-06-18T12:00:01.000Z",
+    },
+    contextSummary: {
+      budget: null,
+      beds: null,
+      timing: null,
+      furnished: null,
+      shortTerm: null,
+      positiveAnchors: [],
+      avoidAnchors: [],
+      selectedZones: [],
+      sourceStrictness: null,
+    },
+    actionRecords: [
+      {
+        id: "listing-save-1",
+        threadId: "thread-1",
+        messageId: "message-assistant-1",
+        partIndex: 1,
+        kind: "listingSave",
+        target: {
+          kind: "listingLead",
+          resultSetId: "result-set-1",
+          canonicalUrl: listingCandidate.url,
+          listingSnapshotHash: "listing-snapshot-hash-1",
+          listingLedgerRevision: "ledger-rev-1",
+        },
+        status: "pending",
+        createdAt: "2026-06-18T12:00:01.000Z",
+        updatedAt: "2026-06-18T12:00:01.000Z",
+      },
+      {
+        id: "listing-dismiss-1",
+        threadId: "thread-1",
+        messageId: "message-assistant-1",
+        partIndex: 1,
+        kind: "listingDismiss",
+        target: {
+          kind: "listingLead",
+          resultSetId: "result-set-1",
+          canonicalUrl: listingCandidate.url,
+          listingSnapshotHash: "listing-snapshot-hash-1",
+          listingLedgerRevision: "ledger-rev-1",
+        },
+        status: "pending",
+        createdAt: "2026-06-18T12:00:01.000Z",
+        updatedAt: "2026-06-18T12:00:01.000Z",
+      },
+    ],
+    mapSnapshot: {
+      id: "snapshot-1",
+      threadId: "thread-1",
+      clientInstallationId: "install-1",
+      mapState: seedMapState,
+      revision: "map-rev-1",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:00.000Z",
+    },
+    listingLedgerRevision: "ledger-rev-1",
+  };
+}
+
+function createPlanningActionExecuteCorridorPriorityResponse() {
+  const nextMapState = {
+    ...samplePlanningMapState,
+    corridors: samplePlanningMapState.corridors.map((corridor) =>
+      corridor.id === "polk" ? { ...corridor, priority: "high" as const } : corridor,
+    ),
+  };
+
+  return {
+    ok: true,
+    action: {
+      id: "action-corridor-priority-1",
+      threadId: "thread-corridor-1",
+      messageId: "message-assistant-corridor-1",
+      partIndex: 1,
+      kind: "mapProposal",
+      target: {
+        kind: "mapProposal",
+        messageId: "message-assistant-corridor-1",
+        partIndex: 1,
+        proposalHash: "proposal-corridor-priority-1",
+        allowedOperationIndexes: [0],
+        mapRevision: "map-rev-1",
+      },
+      status: "applied",
+      createdAt: "2026-06-18T12:00:01.000Z",
+      updatedAt: "2026-06-18T12:00:02.000Z",
+    },
+    execution: {
+      id: "exec-corridor-priority-1",
+      actionId: "action-corridor-priority-1",
+      idempotencyKey: "idem-corridor-priority-1",
+      payloadHash: "payload-corridor-priority-1",
+      status: "succeeded",
+      createdAt: "2026-06-18T12:00:02.000Z",
+    },
+    mapSnapshot: {
+      id: "snapshot-corridor-2",
+      threadId: "thread-corridor-1",
+      clientInstallationId: "install-1",
+      revision: "map-rev-2",
+      createdAt: "2026-06-18T12:00:00.000Z",
+      updatedAt: "2026-06-18T12:00:02.000Z",
+      mapState: nextMapState,
+    },
+    mapState: nextMapState,
+  };
 }

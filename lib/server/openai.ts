@@ -1,3 +1,5 @@
+import { redactSecrets } from "@/lib/server/redaction";
+
 type CreateOpenAiResponseOptions = {
   apiKey: string;
   payload: unknown;
@@ -31,6 +33,10 @@ export async function createOpenAiResponse({
     const body = await readResponseBody(response);
 
     if (!response.ok) {
+      console.warn("OpenAI Responses API request failed", {
+        status: response.status,
+        body: redactSecrets(body),
+      });
       return { ok: false, status: response.status, body };
     }
 

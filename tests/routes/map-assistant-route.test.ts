@@ -152,16 +152,79 @@ describe("POST /api/ai/map-assistant", () => {
         },
       },
     });
+    expect(payload.text.format.schema.type).toBe("object");
+    expect(JSON.stringify(payload.text.format.schema)).not.toContain('"oneOf"');
+    expect(JSON.stringify(payload.text.format.schema)).not.toContain('"const"');
     expect(JSON.stringify(payload)).toContain(
       '"required":["type","zoneId","fitnessScore","affordabilityScore","carFreeScore"]',
     );
     expect(JSON.stringify(payload)).toContain(
       '"fitnessScore":{"anyOf":[{"enum":[1,2,3,4,5]},{"type":"null"}]}',
     );
-    expect(JSON.stringify(payload)).toContain('"type":{"const":"updateTargetPlanningFields"}');
+    expect(JSON.stringify(payload)).toContain('"type":{"enum":["updateTargetPlanningFields"]}');
+    expect(JSON.stringify(payload)).toContain(
+      '"required":["type","targetId","name","purpose","influence","priority","radiusMinutes","notes","reason"]',
+    );
+    expect(JSON.stringify(payload)).toContain(
+      '"reason":{"type":"string","minLength":1,"maxLength":2000}',
+    );
+    expect(JSON.stringify(payload)).toContain('"type":{"enum":["updateCorridorPriority"]}');
     expect(JSON.stringify(payload)).toContain(
       '"purpose":{"anyOf":[{"type":"string","minLength":1,"maxLength":2000},{"type":"null"}]}',
     );
+  });
+
+  it("preserves the proposal response shape for successful assistant outcomes", async () => {
+    mockOpenAiResponse({
+      output_text: JSON.stringify({
+        kind: "proposal",
+        assistantMessage: "I found one map update worth reviewing.",
+        proposal: {
+          summary: "Add a renter note to Lower Pac Heights.",
+          operations: [
+            {
+              type: "addNote",
+              entityId: "lower-pac-heights",
+              note: "Watch for studio listings near Fillmore with good bus access.",
+            },
+          ],
+          confidence: "high",
+          requiresUserReview: true,
+        },
+        targetCandidates: [],
+        corridorCandidates: [],
+        caveats: ["Review before applying."],
+      }),
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          message: "Add a note about Lower Pac Heights.",
+          mapState: seedMapState,
+          selectedZoneIds: ["lower-pac-heights"],
+        },
+        "Bearer sk-test-map",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.kind === "proposal" || body.kind === "needsMoreInfo" || body.kind === "noAction").toBe(
+      true,
+    );
+    expect(body).toMatchObject({
+      kind: "proposal",
+      proposal: expect.objectContaining({
+        summary: "Add a renter note to Lower Pac Heights.",
+        operations: expect.any(Array),
+      }),
+      researchSummary: expect.objectContaining({
+        items: expect.any(Array),
+        exclusions: expect.any(Array),
+        caveats: ["Review before applying."],
+      }),
+    });
   });
 
   it("parses addTarget proposals with target planning fields", async () => {

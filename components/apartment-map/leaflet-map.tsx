@@ -33,6 +33,7 @@ import {
   formatTargetLabel,
   targetRadiusMeters,
 } from "@/lib/map/target-points";
+import { resolveTileConfig } from "@/lib/map/tile-config";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
@@ -80,8 +81,6 @@ type LeafletWithGeoman = typeof L & {
 };
 
 const SF_CENTER: LatLngTuple = [37.7749, -122.4194];
-const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const DEFAULT_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 function imageUrl(image: ImportedLeafletImage) {
   return typeof image === "string" ? image : image.src;
@@ -471,8 +470,10 @@ export function LeafletMap({
       ),
     [listings],
   );
-  const tileUrl = process.env.NEXT_PUBLIC_TILE_URL ?? DEFAULT_TILE_URL;
-  const tileAttribution = process.env.NEXT_PUBLIC_TILE_ATTRIBUTION ?? DEFAULT_TILE_ATTRIBUTION;
+  const { tileUrl, tileAttribution } = resolveTileConfig({
+    tileUrl: process.env.NEXT_PUBLIC_TILE_URL,
+    tileAttribution: process.env.NEXT_PUBLIC_TILE_ATTRIBUTION,
+  });
 
   useEffect(() => {
     let mounted = true;

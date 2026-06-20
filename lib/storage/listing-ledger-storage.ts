@@ -3,6 +3,7 @@ import type {
   ListingCandidate,
   ListingLead,
   ListingLedger,
+  ListingLeadStatus,
 } from "@/lib/domain/types";
 
 const listingLedgerStorageKey = "sf-apt-hunt:listing-ledger:v1";
@@ -152,35 +153,76 @@ export function mergeListingCandidatesIntoLedger({
     candidatesByCanonicalUrl.set(canonicalUrl, { ...candidate, url: canonicalUrl });
   }
 
-  const leads = Array.from(candidatesByCanonicalUrl.entries()).map(([canonicalUrl, candidate]) => {
-    const existingLead = ledger[canonicalUrl];
-    const lead: ListingLead = existingLead
-      ? {
-          ...existingLead,
-          lastSeenAt: now,
-          lastSearchQuery: query,
-          seenCount: existingLead.seenCount + 1,
-          status: "seen",
-          candidate,
-        }
-      : {
-          canonicalUrl,
-          firstSeenAt: now,
-          lastSeenAt: now,
-          lastSearchQuery: query,
-          seenCount: 1,
-          status: "new",
-          candidate,
-        };
+  const leads = Array.from(candidatesByCanonicalUrl.entries()).flatMap(
+    ([canonicalUrl, candidate]) => {
+      const existingLead = ledger[canonicalUrl];
+      const status = existingLead ? statusForReappearingLead(existingLead.status) : "new";
+      const lead: ListingLead = existingLead
+        ? {
+            ...existingLead,
+            lastSeenAt: now,
+            lastSearchQuery: query,
+            seenCount: existingLead.seenCount + 1,
+            status,
+            candidate,
+          }
+        : {
+            canonicalUrl,
+            firstSeenAt: now,
+            lastSeenAt: now,
+            lastSearchQuery: query,
+            seenCount: 1,
+            status,
+            candidate,
+          };
 
-    delete ledger[canonicalUrl];
-    ledger[canonicalUrl] = lead;
-    return lead;
-  });
+      delete ledger[canonicalUrl];
+      ledger[canonicalUrl] = lead;
+
+      return lead.status === "dismissed" ? [] : [lead];
+    },
+  );
 
   const cappedLedger = capListingLedger(ledger);
   saveListingLedger(cappedLedger, storage);
   return { ledger: cappedLedger, leads };
+}
+
+export function saveListingLead(url: string, storage?: StorageLike) {
+  return updateListingLeadStatus(url, "saved", storage);
+}
+
+export function dismissListingLead(url: string, storage?: StorageLike) {
+  return updateListingLeadStatus(url, "dismissed", storage);
+}
+
+function updateListingLeadStatus(
+  url: string,
+  status: Extract<ListingLeadStatus, "saved" | "dismissed">,
+  storage?: StorageLike,
+) {
+  const canonicalUrl = canonicalizeListingUrl(url);
+  const ledger = loadListingLedger(storage);
+  const existingLead = ledger[canonicalUrl];
+
+  if (!existingLead) {
+    return null;
+  }
+
+  if (existingLead.status === "saved" && status === "dismissed") {
+    return null;
+  }
+
+  const nextLead = {
+    ...existingLead,
+    status,
+  };
+  const nextLedger = {
+    ...ledger,
+    [canonicalUrl]: nextLead,
+  };
+  saveListingLedger(nextLedger, storage);
+  return nextLead;
 }
 
 export function updateListingLeadCandidate(
@@ -206,6 +248,14 @@ export function updateListingLeadCandidate(
   };
   saveListingLedger(nextLedger, storage);
   return nextLead;
+}
+
+function statusForReappearingLead(existingStatus: ListingLeadStatus): ListingLeadStatus {
+  if (existingStatus === "saved" || existingStatus === "dismissed") {
+    return existingStatus;
+  }
+
+  return "seen";
 }
 
 function capListingLedger(ledger: ListingLedger): ListingLedger {

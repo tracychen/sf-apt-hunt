@@ -1,25 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { type ChangeEvent, useRef, useState } from "react";
 
 import type {
+  GeocodeAuthorization,
   ListingDisplayCandidate,
-  ListingSearchFilters,
-  ListingSearchResponse,
-  MapPatchProposal,
+  ListingLead,
   MapState,
+  PlanningContextSummary,
 } from "@/lib/domain/types";
 import type {
   SelectedMapEntity,
   VisibleMapLayers,
 } from "@/components/apartment-map/leaflet-map";
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
-import { AssistantPanel } from "@/components/apartment-map/assistant-panel";
 import { CorridorEditor } from "@/components/apartment-map/corridor-editor";
-import { ListingResults } from "@/components/apartment-map/listing-results";
-import { ProposalReviewDialog } from "@/components/apartment-map/proposal-review-dialog";
+import { PlanningChatPanel } from "@/components/apartment-map/planning-chat-panel";
 import { TargetEditor } from "@/components/apartment-map/target-editor";
 import { Button } from "@/components/ui/button";
+import { mapStateSchema } from "@/lib/domain/schemas";
 import { formatTargetLabel } from "@/lib/map/target-points";
 
 export function Sidebar({
@@ -30,18 +29,13 @@ export function Sidebar({
   visibleLayers,
   selectedZoneIds,
   listings,
-  listingSearchMeta,
-  proposal,
-  activeListingSearchRequestId,
+  planningResetToken,
   onApiKeyChange,
+  onDeselectSelectedEntity,
+  onImportMapState,
   onMapStateChange,
+  onPlanningListingLeadChange,
   onVisibleLayersChange,
-  onListingSearchStart,
-  isListingSearchRequestCurrent,
-  onListingSearchResponse,
-  onProposalChange,
-  onApplyProposal,
-  onRejectProposal,
   onUndo,
   onReset,
   onResetSelectedShapes,
@@ -55,28 +49,29 @@ export function Sidebar({
   visibleLayers: VisibleMapLayers;
   selectedZoneIds: string[];
   listings: ListingDisplayCandidate[];
-  listingSearchMeta: Pick<ListingSearchResponse, "sourceSummary" | "citations" | "caveats"> | null;
-  proposal: MapPatchProposal | null;
-  activeListingSearchRequestId: number;
+  planningResetToken: number;
   onApiKeyChange: (key: string | null, remembered: boolean) => void;
+  onDeselectSelectedEntity: () => void;
+  onImportMapState: (state: MapState) => void;
   onMapStateChange: (state: MapState) => void;
+  onPlanningListingLeadChange: (input: {
+    lead: ListingLead;
+    contextSummary: PlanningContextSummary | null;
+    geocodeAuthorization: GeocodeAuthorization | null;
+  }) => void;
   onVisibleLayersChange: (layers: VisibleMapLayers) => void;
-  onListingSearchStart: () => number;
-  isListingSearchRequestCurrent: (requestId: number) => boolean;
-  onListingSearchResponse: (
-    response: ListingSearchResponse,
-    request: { query: string; filters: ListingSearchFilters; requestId: number },
-  ) => boolean;
-  onProposalChange: (proposal: MapPatchProposal | null) => void;
-  onApplyProposal: (state: MapState) => void;
-  onRejectProposal: () => void;
   onUndo: () => void;
   onReset: () => void;
   onResetSelectedShapes: () => void;
   canUndo: boolean;
   canResetSelectedShapes: boolean;
 }) {
-  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [workspaceStatus, setWorkspaceStatus] = useState<string | null>(null);
+  const [pendingImport, setPendingImport] = useState<{
+    fileName: string;
+    mapState: MapState;
+  } | null>(null);
   const selectedCorridor =
     selectedEntity?.kind === "corridor"
       ? mapState.corridors.find((corridor) => corridor.id === selectedEntity.id) ?? null
@@ -96,10 +91,56 @@ export function Sidebar({
   async function copyMapJson() {
     try {
       await navigator.clipboard.writeText(JSON.stringify(mapState, null, 2));
-      setExportStatus("Copied local map JSON.");
+      setWorkspaceStatus("Copied local map JSON.");
     } catch {
-      setExportStatus("Could not copy local map JSON.");
+      setWorkspaceStatus("Could not copy local map JSON.");
     }
+  }
+
+  function openImportPicker() {
+    importInputRef.current?.click();
+  }
+
+  async function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] ?? null;
+    event.currentTarget.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      const result = mapStateSchema.safeParse(parsed);
+
+      if (!result.success) {
+        setPendingImport(null);
+        setWorkspaceStatus("Import failed. Choose a valid SF Apartment Hunt map JSON file.");
+        return;
+      }
+
+      const fileName = file.name.trim() || "selected file";
+      setPendingImport({ fileName, mapState: result.data });
+      setWorkspaceStatus(`Ready to import ${fileName}.`);
+    } catch {
+      setPendingImport(null);
+      setWorkspaceStatus("Import failed. Choose a valid JSON file.");
+    }
+  }
+
+  function replaceCurrentMap() {
+    if (!pendingImport) {
+      return;
+    }
+
+    onImportMapState(pendingImport.mapState);
+    setWorkspaceStatus(`Imported ${pendingImport.fileName}.`);
+    setPendingImport(null);
+  }
+
+  function cancelImport() {
+    setPendingImport(null);
+    setWorkspaceStatus("Map import canceled.");
   }
 
   return (
@@ -120,6 +161,9 @@ export function Sidebar({
         <Button disabled={!canUndo} variant="outline" onClick={onUndo}>
           Undo
         </Button>
+        <Button disabled={!selectedEntity} variant="outline" onClick={onDeselectSelectedEntity}>
+          Deselect
+        </Button>
         <Button disabled={!canResetSelectedShapes} variant="outline" onClick={onResetSelectedShapes}>
           Reset selected shape
         </Button>
@@ -129,7 +173,35 @@ export function Sidebar({
         <Button variant="outline" onClick={copyMapJson}>
           Copy map JSON
         </Button>
+        <Button variant="outline" onClick={openImportPicker}>
+          Import map JSON
+        </Button>
+        <input
+          ref={importInputRef}
+          aria-label="Import map JSON file"
+          accept=".json,application/json"
+          className="sr-only"
+          onChange={handleImportFileChange}
+          type="file"
+        />
       </div>
+      {pendingImport ? (
+        <div className="border-b border-sidebar-border bg-background px-3 py-2 text-xs">
+          <p className="font-medium">Importing this file will replace the current map.</p>
+          <p className="mt-1 text-muted-foreground">
+            Review saved versions before continuing. Current pins, corridors, zones, chat, and staged
+            listings will be cleared from this workspace.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" onClick={replaceCurrentMap}>
+              Replace current map
+            </Button>
+            <Button size="sm" variant="outline" onClick={cancelImport}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="space-y-4 p-4">
         <section className="border border-sidebar-border bg-background p-3 text-sm">
@@ -148,7 +220,7 @@ export function Sidebar({
               </label>
             ))}
           </div>
-          {exportStatus ? <p className="mt-3 text-xs text-muted-foreground">{exportStatus}</p> : null}
+          {workspaceStatus ? <p className="mt-3 text-xs text-muted-foreground">{workspaceStatus}</p> : null}
         </section>
 
         {selectedTarget ? (
@@ -172,27 +244,15 @@ export function Sidebar({
           remembered={remembered}
           onApiKeyChange={onApiKeyChange}
         />
-        <AssistantPanel
+        <PlanningChatPanel
           apiKey={apiKey}
           mapState={mapState}
+          selectedEntity={selectedEntity}
           selectedZoneIds={selectedZoneIds}
-          activeListingSearchRequestId={activeListingSearchRequestId}
-          onProposalChange={onProposalChange}
-          onListingSearchStart={onListingSearchStart}
-          isListingSearchRequestCurrent={isListingSearchRequestCurrent}
-          onListingSearchResponse={onListingSearchResponse}
-        />
-        <ListingResults
-          listings={listings}
-          sourceSummary={listingSearchMeta?.sourceSummary ?? null}
-          sourceCitations={listingSearchMeta?.citations ?? []}
-          sourceCaveats={listingSearchMeta?.caveats ?? []}
-        />
-        <ProposalReviewDialog
-          mapState={mapState}
-          proposal={proposal}
-          onApply={onApplyProposal}
-          onReject={onRejectProposal}
+          visibleLayers={visibleLayers}
+          resetToken={planningResetToken}
+          onMapStateChange={onMapStateChange}
+          onPlanningListingLeadChange={onPlanningListingLeadChange}
         />
       </div>
     </aside>

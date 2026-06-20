@@ -4,9 +4,11 @@ import type { ListingCandidate, ListingLead } from "@/lib/domain/types";
 import {
   canonicalizeListingUrl,
   clearListingLedger,
+  dismissListingLead,
   loadListingLedger,
   mergeListingCandidatesIntoLedger,
   saveListingLedger,
+  saveListingLead,
   updateListingLeadCandidate,
 } from "@/lib/storage/listing-ledger-storage";
 
@@ -68,8 +70,15 @@ class ThrowingStorage implements Storage {
 
 function createCandidate(
   index: number,
-  url = `https://example.com/listings/${index}`,
+  urlOrOverrides: string | Partial<ListingCandidate> = `https://example.com/listings/${index}`,
+  overrides: Partial<ListingCandidate> = {},
 ): ListingCandidate {
+  const url =
+    typeof urlOrOverrides === "string"
+      ? urlOrOverrides
+      : `https://example.com/listings/${index}`;
+  const candidateOverrides = typeof urlOrOverrides === "string" ? overrides : urlOrOverrides;
+
   return {
     id: `candidate-${index}`,
     title: `Candidate ${index}`,
@@ -96,6 +105,7 @@ function createCandidate(
       },
     ],
     caveats: [],
+    ...candidateOverrides,
   };
 }
 
@@ -219,6 +229,72 @@ describe("listing ledger storage", () => {
     });
     expect(result.leads[0]?.candidate.priceMonthly).toBe(2750);
     expect(result.leads[0]?.candidate.url).toBe("https://example.com/listings/1");
+  });
+
+  it("preserves saved status when a saved listing reappears", () => {
+    const storage = new FakeStorage();
+    const first = mergeListingCandidatesIntoLedger({
+      candidates: [createCandidate(1)],
+      query: "first",
+      now: "2026-06-19T12:00:00.000Z",
+      storage,
+    }).leads[0];
+
+    const saved = saveListingLead(first.canonicalUrl, storage);
+    expect(saved?.status).toBe("saved");
+
+    const second = mergeListingCandidatesIntoLedger({
+      candidates: [createCandidate(1, { title: "Updated listing" })],
+      query: "second",
+      now: "2026-06-20T12:00:00.000Z",
+      storage,
+    }).leads[0];
+
+    expect(second.status).toBe("saved");
+    expect(second.seenCount).toBe(2);
+    expect(second.candidate.title).toBe("Updated listing");
+  });
+
+  it("does not dismiss a saved listing lead and returns null", () => {
+    const storage = new FakeStorage();
+    const first = mergeListingCandidatesIntoLedger({
+      candidates: [createCandidate(1)],
+      query: "first",
+      now: "2026-06-19T12:00:00.000Z",
+      storage,
+    }).leads[0];
+
+    const saved = saveListingLead(first.canonicalUrl, storage);
+    expect(saved?.status).toBe("saved");
+
+    const dismissed = dismissListingLead(first.canonicalUrl, storage);
+
+    expect(dismissed).toBeNull();
+    expect(loadListingLedger(storage)[first.canonicalUrl]?.status).toBe("saved");
+  });
+
+  it("preserves dismissed status and omits dismissed leads from merge results by default", () => {
+    const storage = new FakeStorage();
+    const first = mergeListingCandidatesIntoLedger({
+      candidates: [createCandidate(1)],
+      query: "first",
+      now: "2026-06-19T12:00:00.000Z",
+      storage,
+    }).leads[0];
+
+    const dismissed = dismissListingLead(first.canonicalUrl, storage);
+    expect(dismissed?.status).toBe("dismissed");
+
+    const result = mergeListingCandidatesIntoLedger({
+      candidates: [createCandidate(1, { title: "Updated listing" })],
+      query: "second",
+      now: "2026-06-20T12:00:00.000Z",
+      storage,
+    });
+
+    expect(result.leads).toEqual([]);
+    expect(loadListingLedger(storage)[first.canonicalUrl]?.status).toBe("dismissed");
+    expect(loadListingLedger(storage)[first.canonicalUrl]?.seenCount).toBe(2);
   });
 
   it("deduplicates new canonical URLs within a single merge batch", () => {

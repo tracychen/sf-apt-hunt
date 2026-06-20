@@ -138,6 +138,35 @@ describe("POST /api/ai/listing-search", () => {
     expect(body.caveats).toEqual(structuredOutput.caveats);
   });
 
+  it("preserves geocode authorization on successful listing search responses", async () => {
+    vi.stubEnv("GEOCODE_NONCE_SECRET", "test-secret");
+    mockOpenAiResponse({
+      output_text: JSON.stringify({
+        candidates: [createCandidate(1, "1231 Market St")],
+        sourceSummary: "One source matched the search.",
+        citations: [],
+        caveats: [],
+        geocodeAuthorization: null,
+      }),
+    });
+
+    const response = await POST(
+      createRequest({ query: "Find furnished studios near Fillmore." }, "Bearer sk-test-listing"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toHaveProperty("candidates");
+    expect(body).toHaveProperty("geocodeAuthorization");
+    expect(body.geocodeAuthorization).toEqual(
+      expect.objectContaining({
+        nonce: expect.any(String),
+        expiresAt: expect.any(String),
+        allowedQueries: expect.any(Array),
+      }),
+    );
+  });
+
   it("requires hosted web search and disables storage in the OpenAI request", async () => {
     const structuredOutput = {
       candidates: [],

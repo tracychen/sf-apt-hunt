@@ -2,15 +2,29 @@ import { z } from "zod";
 
 import type {
   CorridorGeometryQuality,
+  ExecutePlanningActionRequest,
+  ExecutePlanningActionResponse,
   GeocodeAuthorization,
   LineStringGeometry,
   ListingCandidate,
+  ListingDisplayCandidate,
   ListingLead,
   ListingSearchResponse,
   MapAssistantOutcome,
   MapPatchProposal,
+  MapSnapshot,
   MapState,
   MapZone,
+  PlanningActionExecutionRecord,
+  PlanningActionRecord,
+  PlanningActionTarget,
+  PlanningChatPart,
+  PlanningChatRequest,
+  PlanningChatResponse,
+  PlanningContextSummary,
+  PlanningMessage,
+  PlanningResetRequest,
+  PlanningThread,
   PolygonGeometry,
   ResearchExclusion,
   ResearchExclusionReason,
@@ -24,6 +38,7 @@ import type {
   ResearchedCorridorSourceUrlGeometryCandidate,
   ResearchedCorridorWaypointCandidate,
   ResearchedTargetCandidate,
+  SelectedMapEntity,
   SourceCitation,
   TargetCorridor,
   TargetPoint,
@@ -326,7 +341,7 @@ export const listingSearchFiltersSchema = z.object({
   furnished: z.boolean(),
 });
 
-export const listingLeadStatusSchema = z.enum(["new", "seen"]);
+export const listingLeadStatusSchema = z.enum(["new", "seen", "saved", "dismissed"]);
 const persistedListingCandidateSchema: z.ZodType<ListingCandidate> = z.object({
   ...listingCandidateShape,
   url: listingCanonicalKeySchema,
@@ -340,6 +355,17 @@ export const listingLeadSchema: z.ZodType<ListingLead> = z.object({
   seenCount: z.number().int().positive(),
   status: listingLeadStatusSchema,
   candidate: persistedListingCandidateSchema,
+});
+
+export const listingDisplayCandidateSchema: z.ZodType<ListingDisplayCandidate> = z.object({
+  ...listingCandidateShape,
+  canonicalUrl: listingCanonicalKeySchema,
+  leadStatus: listingLeadStatusSchema,
+  firstSeenAt: z.string().datetime(),
+  lastSeenAt: z.string().datetime(),
+  seenCount: z.number().int().positive(),
+  planningScore: scoreSchema,
+  planningSignals: z.array(requiredTextSchema).max(MAX_CAVEATS),
 });
 
 export const listingSearchResponseSchema: z.ZodType<ListingSearchResponse> = z.object({
@@ -480,3 +506,361 @@ export const mapStateSchema: z.ZodType<MapState> = z.object({
   corridors: z.array(targetCorridorSchema).max(MAX_MAP_CORRIDORS),
   targets: z.array(targetPointSchema).max(MAX_MAP_TARGETS),
 });
+
+const planningMessageRoleSchema = z.enum(["user", "assistant"]);
+const planningActionStatusSchema = z.enum(["pending", "applied", "dismissed", "failed"]);
+const planningActionFailureKindSchema = z.enum(["retryable", "permanent"]);
+
+export const selectedMapEntitySchema: z.ZodType<SelectedMapEntity> = z
+  .union([
+    z
+      .object({
+        kind: z.literal("zone"),
+        id: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("corridor"),
+        id: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("target"),
+        id: idSchema,
+      })
+      .strict(),
+    z.null(),
+  ]);
+
+export const planningContextSummarySchema: z.ZodType<PlanningContextSummary> = z
+  .object({
+    budget: z.number().int().positive().nullable(),
+    beds: listingSearchFiltersSchema.shape.beds.nullable(),
+    timing: textSchema.nullable(),
+    furnished: z.boolean().nullable(),
+    shortTerm: z.boolean().nullable(),
+    positiveAnchors: z.array(requiredTextSchema).max(MAX_CAVEATS),
+    avoidAnchors: z.array(requiredTextSchema).max(MAX_CAVEATS),
+    selectedZones: z.array(nameSchema).max(MAX_MAP_ZONES),
+    sourceStrictness: textSchema.nullable(),
+  })
+  .strict();
+
+export const mapSnapshotSchema: z.ZodType<MapSnapshot> = z
+  .object({
+    id: idSchema,
+    threadId: idSchema,
+    clientInstallationId: idSchema,
+    mapState: mapStateSchema,
+    revision: idSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+const planningListingCardSchema = z
+  .object({
+    lead: listingLeadSchema,
+    display: listingDisplayCandidateSchema,
+    saveActionId: idSchema,
+    dismissActionId: idSchema,
+  })
+  .strict();
+
+const planningChatPartSchemas = [
+  z
+    .object({
+      type: z.literal("text"),
+      text: requiredLongTextSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("contextSummary"),
+      context: planningContextSummarySchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("followUpQuestion"),
+      question: requiredLongTextSchema,
+      missingInformation: z
+        .array(requiredTextSchema)
+        .min(1)
+        .max(MAX_MISSING_INFORMATION_ITEMS),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("mapProposal"),
+      actionId: idSchema,
+      proposal: mapPatchProposalSchema,
+      researchSummary: researchSummarySchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("listingResults"),
+      resultSetId: idSchema,
+      listings: z.array(planningListingCardSchema).max(MAX_LISTING_CANDIDATES),
+      sourceSummary: longTextSchema,
+      caveats: z.array(textSchema).max(MAX_CAVEATS),
+      geocodeAuthorization: geocodeAuthorizationSchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("targetEditProposal"),
+      actionId: idSchema,
+      proposal: mapPatchProposalSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("error"),
+      message: requiredLongTextSchema,
+    })
+    .strict(),
+] as const;
+
+export const planningChatPartSchema: z.ZodType<PlanningChatPart> = z.discriminatedUnion("type", [
+  planningChatPartSchemas[0],
+  planningChatPartSchemas[1],
+  planningChatPartSchemas[2],
+  planningChatPartSchemas[3],
+  planningChatPartSchemas[4],
+  planningChatPartSchemas[5],
+  planningChatPartSchemas[6],
+]);
+
+export const planningMessageSchema: z.ZodType<PlanningMessage> = z
+  .object({
+    id: idSchema,
+    threadId: idSchema,
+    role: planningMessageRoleSchema,
+    parts: z.array(planningChatPartSchema).min(1),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+const planningUserMessageSchema = planningMessageSchema.refine(
+  (message) => message.role === "user",
+  {
+    message: 'Planning chat responses must use role "user" for userMessage.',
+    path: ["role"],
+  },
+);
+
+const planningAssistantMessageSchema = planningMessageSchema.refine(
+  (message) => message.role === "assistant",
+  {
+    message: 'Planning chat responses must use role "assistant" for assistantMessage.',
+    path: ["role"],
+  },
+);
+
+export const planningThreadSchema: z.ZodType<PlanningThread> = z
+  .object({
+    id: idSchema,
+    clientInstallationId: idSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    title: textSchema,
+    summary: textSchema,
+  })
+  .strict();
+
+const planningActionTargetObjectSchemas = [
+  z
+    .object({
+      kind: z.literal("mapProposal"),
+      messageId: idSchema,
+      partIndex: z.number().int().nonnegative(),
+      proposalHash: idSchema,
+      allowedOperationIndexes: z.array(z.number().int().nonnegative()).max(MAX_PROPOSAL_OPERATIONS),
+      mapRevision: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("mapProposalItem"),
+      messageId: idSchema,
+      partIndex: z.number().int().nonnegative(),
+      proposalHash: idSchema,
+      operationIndex: z.number().int().nonnegative(),
+      mapRevision: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("listingLead"),
+      resultSetId: idSchema,
+      canonicalUrl: listingCanonicalKeySchema,
+      listingSnapshotHash: idSchema,
+      listingLedgerRevision: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("targetEdit"),
+      messageId: idSchema,
+      partIndex: z.number().int().nonnegative(),
+      proposalHash: idSchema,
+      allowedOperationIndexes: z.array(z.number().int().nonnegative()).max(MAX_PROPOSAL_OPERATIONS),
+      mapRevision: idSchema,
+    })
+    .strict(),
+] as const;
+
+export const planningActionTargetSchema: z.ZodType<PlanningActionTarget> = z.discriminatedUnion(
+  "kind",
+  [
+    planningActionTargetObjectSchemas[0],
+    planningActionTargetObjectSchemas[1],
+    planningActionTargetObjectSchemas[2],
+    planningActionTargetObjectSchemas[3],
+  ],
+);
+
+export const planningActionRecordSchema: z.ZodType<PlanningActionRecord> = z
+  .object({
+    id: idSchema,
+    threadId: idSchema,
+    messageId: idSchema,
+    partIndex: z.number().int().nonnegative(),
+    kind: z.enum(["mapProposal", "mapProposalItem", "listingSave", "listingDismiss", "targetEdit"]),
+    target: planningActionTargetSchema,
+    status: planningActionStatusSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    error: textSchema.optional(),
+    failureKind: planningActionFailureKindSchema.optional(),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    const expectedTargetKindByActionKind = {
+      mapProposal: "mapProposal",
+      mapProposalItem: "mapProposalItem",
+      listingSave: "listingLead",
+      listingDismiss: "listingLead",
+      targetEdit: "targetEdit",
+    } as const;
+
+    const expectedTargetKind = expectedTargetKindByActionKind[record.kind];
+
+    if (record.target.kind !== expectedTargetKind) {
+      context.addIssue({
+        code: "custom",
+        path: ["target", "kind"],
+        message: `Planning action kind "${record.kind}" must use target kind "${expectedTargetKind}".`,
+      });
+    }
+  });
+
+export const planningActionExecutionRecordSchema: z.ZodType<PlanningActionExecutionRecord> = z
+  .object({
+    id: idSchema,
+    actionId: idSchema,
+    idempotencyKey: idSchema,
+    payloadHash: idSchema,
+    status: z.enum(["succeeded", "failed"]),
+    createdAt: z.string().datetime(),
+    error: textSchema.optional(),
+  })
+  .strict();
+
+export const planningChatRequestSchema: z.ZodType<PlanningChatRequest> = z
+  .object({
+    threadId: idSchema.nullable(),
+    clientInstallationId: idSchema,
+    message: requiredLongTextSchema,
+    mapState: mapStateSchema,
+    mapRevision: idSchema.nullable(),
+    listingLedgerRevision: idSchema.nullable(),
+    selectedEntity: selectedMapEntitySchema,
+    visibleContext: planningContextSummarySchema.nullable(),
+  })
+  .strict();
+
+export const planningChatResponseSchema: z.ZodType<PlanningChatResponse> = z
+  .object({
+    thread: planningThreadSchema,
+    userMessage: planningUserMessageSchema,
+    assistantMessage: planningAssistantMessageSchema,
+    contextSummary: planningContextSummarySchema,
+    actionRecords: z.array(planningActionRecordSchema),
+    mapSnapshot: mapSnapshotSchema,
+    listingLedgerRevision: idSchema,
+  })
+  .strict();
+
+export const planningResetRequestSchema: z.ZodType<PlanningResetRequest> = z
+  .object({
+    clientInstallationId: idSchema,
+  })
+  .strict();
+
+const executePlanningActionPayloadSchemas = [
+  z
+    .object({
+      kind: z.literal("mapProposal"),
+      operationIndexes: z.array(z.number().int().nonnegative()).max(MAX_PROPOSAL_OPERATIONS),
+      expectedMapRevision: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("listingSave"),
+      expectedListingLedgerRevision: idSchema,
+      expectedListingSnapshotHash: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("listingDismiss"),
+      expectedListingLedgerRevision: idSchema,
+      expectedListingSnapshotHash: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("targetEdit"),
+      operationIndexes: z.array(z.number().int().nonnegative()).max(MAX_PROPOSAL_OPERATIONS),
+      expectedMapRevision: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("dismiss"),
+    })
+    .strict(),
+] as const;
+
+export const executePlanningActionRequestSchema: z.ZodType<ExecutePlanningActionRequest> = z
+  .object({
+    threadId: idSchema,
+    actionId: idSchema,
+    idempotencyKey: idSchema,
+    payload: z.discriminatedUnion("kind", [
+      executePlanningActionPayloadSchemas[0],
+      executePlanningActionPayloadSchemas[1],
+      executePlanningActionPayloadSchemas[2],
+      executePlanningActionPayloadSchemas[3],
+      executePlanningActionPayloadSchemas[4],
+    ]),
+  })
+  .strict();
+
+export const executePlanningActionResponseSchema: z.ZodType<ExecutePlanningActionResponse> = z
+  .object({
+    action: planningActionRecordSchema,
+    execution: planningActionExecutionRecordSchema,
+    mapSnapshot: mapSnapshotSchema.optional(),
+    mapState: mapStateSchema.optional(),
+    listingLead: listingLeadSchema.optional(),
+    listingLedgerRevision: idSchema.optional(),
+    messagePatch: planningMessageSchema.optional(),
+  })
+  .strict();

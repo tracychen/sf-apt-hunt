@@ -215,7 +215,7 @@ export type ListingSearchFilters = {
   furnished: boolean;
 };
 
-export type ListingLeadStatus = "new" | "seen";
+export type ListingLeadStatus = "new" | "seen" | "saved" | "dismissed";
 
 export type ListingLead = {
   canonicalUrl: string;
@@ -250,6 +250,197 @@ export type ListingSearchResponse = {
   citations: SourceCitation[];
   caveats: string[];
   geocodeAuthorization: GeocodeAuthorization | null;
+};
+
+export type SelectedMapEntity =
+  | { kind: "zone"; id: string }
+  | { kind: "corridor"; id: string }
+  | { kind: "target"; id: string }
+  | null;
+
+export type PlanningMessageRole = "user" | "assistant";
+
+export type PlanningActionStatus = "pending" | "applied" | "dismissed" | "failed";
+
+export type PlanningActionFailureKind = "retryable" | "permanent";
+
+export type PlanningContextSummary = {
+  budget: number | null;
+  beds: ListingSearchFilters["beds"] | null;
+  timing: string | null;
+  furnished: boolean | null;
+  shortTerm: boolean | null;
+  positiveAnchors: string[];
+  avoidAnchors: string[];
+  selectedZones: string[];
+  sourceStrictness: string | null;
+};
+
+export type MapSnapshot = {
+  id: string;
+  threadId: string;
+  clientInstallationId: string;
+  mapState: MapState;
+  revision: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PlanningListingCard = {
+  lead: ListingLead;
+  display: ListingDisplayCandidate;
+  saveActionId: string;
+  dismissActionId: string;
+};
+
+export type PlanningChatPart =
+  | { type: "text"; text: string }
+  | { type: "contextSummary"; context: PlanningContextSummary }
+  | { type: "followUpQuestion"; question: string; missingInformation: string[] }
+  | {
+      type: "mapProposal";
+      actionId: string;
+      proposal: MapPatchProposal;
+      researchSummary: ResearchSummary | null;
+    }
+  | {
+      type: "listingResults";
+      resultSetId: string;
+      listings: PlanningListingCard[];
+      sourceSummary: string;
+      caveats: string[];
+      geocodeAuthorization: GeocodeAuthorization | null;
+    }
+  | { type: "targetEditProposal"; actionId: string; proposal: MapPatchProposal }
+  | { type: "error"; message: string };
+
+export type PlanningMessage = {
+  id: string;
+  threadId: string;
+  role: PlanningMessageRole;
+  parts: PlanningChatPart[];
+  createdAt: string;
+};
+
+export type PlanningThread = {
+  id: string;
+  clientInstallationId: string;
+  createdAt: string;
+  updatedAt: string;
+  title: string;
+  summary: string;
+};
+
+export type PlanningActionTarget =
+  | {
+      kind: "mapProposal";
+      messageId: string;
+      partIndex: number;
+      proposalHash: string;
+      allowedOperationIndexes: number[];
+      mapRevision: string;
+    }
+  | {
+      kind: "mapProposalItem";
+      messageId: string;
+      partIndex: number;
+      proposalHash: string;
+      operationIndex: number;
+      mapRevision: string;
+    }
+  | {
+      kind: "listingLead";
+      resultSetId: string;
+      canonicalUrl: string;
+      listingSnapshotHash: string;
+      listingLedgerRevision: string;
+    }
+  | {
+      kind: "targetEdit";
+      messageId: string;
+      partIndex: number;
+      proposalHash: string;
+      allowedOperationIndexes: number[];
+      mapRevision: string;
+    };
+
+export type PlanningActionRecord = {
+  id: string;
+  threadId: string;
+  messageId: string;
+  partIndex: number;
+  kind: "mapProposal" | "mapProposalItem" | "listingSave" | "listingDismiss" | "targetEdit";
+  target: PlanningActionTarget;
+  status: PlanningActionStatus;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+  failureKind?: PlanningActionFailureKind;
+};
+
+export type PlanningActionExecutionRecord = {
+  id: string;
+  actionId: string;
+  idempotencyKey: string;
+  payloadHash: string;
+  status: "succeeded" | "failed";
+  createdAt: string;
+  error?: string;
+};
+
+export type PlanningChatRequest = {
+  threadId: string | null;
+  clientInstallationId: string;
+  message: string;
+  mapState: MapState;
+  mapRevision: string | null;
+  listingLedgerRevision: string | null;
+  selectedEntity: SelectedMapEntity;
+  visibleContext: PlanningContextSummary | null;
+};
+
+export type PlanningChatResponse = {
+  thread: PlanningThread;
+  userMessage: PlanningMessage;
+  assistantMessage: PlanningMessage;
+  contextSummary: PlanningContextSummary;
+  actionRecords: PlanningActionRecord[];
+  mapSnapshot: MapSnapshot;
+  listingLedgerRevision: string;
+};
+
+export type ExecutePlanningActionRequest = {
+  threadId: string;
+  actionId: string;
+  idempotencyKey: string;
+  payload:
+    | { kind: "mapProposal"; operationIndexes: number[]; expectedMapRevision: string }
+    | {
+        kind: "listingSave";
+        expectedListingLedgerRevision: string;
+        expectedListingSnapshotHash: string;
+      }
+    | {
+        kind: "listingDismiss";
+        expectedListingLedgerRevision: string;
+        expectedListingSnapshotHash: string;
+      }
+    | { kind: "targetEdit"; operationIndexes: number[]; expectedMapRevision: string }
+    | { kind: "dismiss" };
+};
+
+export type ExecutePlanningActionResponse = {
+  action: PlanningActionRecord;
+  execution: PlanningActionExecutionRecord;
+  mapSnapshot?: MapSnapshot;
+  mapState?: MapState;
+  listingLead?: ListingLead;
+  listingLedgerRevision?: string;
+  messagePatch?: PlanningMessage;
+};
+
+export type PlanningResetRequest = {
+  clientInstallationId: string;
 };
 
 export type MapPatchProposal = {
