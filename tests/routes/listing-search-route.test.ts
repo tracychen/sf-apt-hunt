@@ -263,6 +263,29 @@ describe("POST /api/ai/listing-search", () => {
     expect(developerPrompt.toLowerCase()).toContain("target coordinates");
   });
 
+  it("instructs the model not to fabricate URLs or guess prices", async () => {
+    const fetchMock = mockOpenAiResponse({
+      output_text: JSON.stringify({
+        candidates: [],
+        sourceSummary: "No matching listings were found.",
+        citations: [],
+        caveats: [],
+        geocodeAuthorization: null,
+      }),
+    });
+
+    await POST(
+      createRequest({ query: "Find studios near Fillmore." }, "Bearer sk-test-listing"),
+    );
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const developerPrompt = String(payload.input[0].content);
+
+    expect(developerPrompt).toContain("never invent, guess, or modify");
+    expect(developerPrompt).toContain("priceMonthly");
+    expect(developerPrompt).toContain("null");
+    expect(developerPrompt).toContain("currently active");
+  });
+
   it("mints geocode authorization for at most 10 geocodeable candidates", async () => {
     vi.stubEnv("GEOCODE_NONCE_SECRET", "test-secret");
     const structuredOutput = {

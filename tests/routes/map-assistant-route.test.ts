@@ -153,7 +153,21 @@ describe("POST /api/ai/map-assistant", () => {
       },
     });
     expect(payload.text.format.schema.type).toBe("object");
+    expect(payload.text.format.schema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: expect.arrayContaining([
+        "kind",
+        "assistantMessage",
+        "missingInformation",
+        "proposal",
+        "targetCandidates",
+        "corridorCandidates",
+        "caveats",
+      ]),
+    });
     expect(JSON.stringify(payload.text.format.schema)).not.toContain('"oneOf"');
+    expect(payload.text.format.schema).not.toHaveProperty("anyOf");
     expect(JSON.stringify(payload.text.format.schema)).not.toContain('"const"');
     expect(JSON.stringify(payload)).toContain(
       '"required":["type","zoneId","fitnessScore","affordabilityScore","carFreeScore"]',
@@ -284,6 +298,10 @@ describe("POST /api/ai/map-assistant", () => {
       kind: "needsMoreInfo",
       assistantMessage: "Which area should I search?",
       missingInformation: ["where to search"],
+      proposal: null,
+      targetCandidates: null,
+      corridorCandidates: null,
+      caveats: null,
     };
     mockOpenAiResponse({ output_text: JSON.stringify(assistantResponse) });
 
@@ -297,7 +315,11 @@ describe("POST /api/ai/map-assistant", () => {
       ),
     );
 
-    await expect(response.json()).resolves.toEqual(assistantResponse);
+    await expect(response.json()).resolves.toEqual({
+      kind: "needsMoreInfo",
+      assistantMessage: "Which area should I search?",
+      missingInformation: ["where to search"],
+    });
     expect(response.status).toBe(200);
     expect(geocodeListingLocationMock).not.toHaveBeenCalled();
   });

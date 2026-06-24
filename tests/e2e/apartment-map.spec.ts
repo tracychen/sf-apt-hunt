@@ -522,6 +522,7 @@ test("planning chat renders listing cards without persisting the listing ledger 
   await page.getByLabel("Ask planning chat").fill("Find studio listings near Fillmore");
   await page.getByRole("button", { name: "Send" }).click();
 
+  await expect(page.getByRole("link", { name: "Studio near Fillmore" })).toBeVisible();
   await expect(page.getByText("One listing matched.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save" }).first()).toBeVisible();
   await expect(page.getByText("0 listings staged.")).toBeVisible();

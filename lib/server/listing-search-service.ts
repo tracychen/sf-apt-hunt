@@ -200,7 +200,12 @@ export async function runListingSearch(rawInput: RunListingSearchInput): Promise
         {
           role: "developer",
           content:
-            "Search the current web for San Francisco apartment listing candidates. Return only structured JSON. Preserve source summaries, citations, candidate citations, caveats, and whyItFits. Do not invent exact coordinates; provide geocodeQuery only when there is enough listing location text. Always set geocodeAuthorization to null. Target coordinates in selectedContext use [longitude, latitude]. Use them only as planning context; do not copy them as listing coordinates.",
+            "Search the current web for San Francisco apartment listing candidates. Return only structured JSON. Preserve source summaries, citations, candidate citations, caveats, and whyItFits. " +
+            "Each candidate's url must be a real listing page that appeared in your web search results; never invent, guess, or modify a URL or its listing ID. " +
+            "Only include listings that appear currently active. If you cannot confirm a listing is still available, keep it but add a caveat noting it may be expired. " +
+            "Set priceMonthly only to the monthly rent shown on that candidate's own listing page. If the rent is unclear, includes fees you cannot total, or sources disagree, set priceMonthly to null and explain in a caveat. Never average, estimate, or copy a price from a different source. " +
+            "Do not invent exact coordinates; provide geocodeQuery only when there is enough listing location text. Always set geocodeAuthorization to null. " +
+            "Target coordinates in selectedContext use [longitude, latitude]. Use them only as planning context; do not copy them as listing coordinates.",
         },
         {
           role: "user",
