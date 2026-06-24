@@ -118,6 +118,9 @@ export async function runPlanningChat(input: {
     now: input.now,
   });
   const thread = (await input.store.getThread(threadState.thread.id)) ?? threadState.thread;
+  const listingLedgerRevision =
+    (await input.store.getListingLedgerRevision(threadState.thread.id)) ??
+    threadState.listingLedgerRevision;
 
   return {
     thread,
@@ -126,7 +129,7 @@ export async function runPlanningChat(input: {
     contextSummary,
     actionRecords,
     mapSnapshot: threadState.mapSnapshot,
-    listingLedgerRevision: threadState.listingLedgerRevision,
+    listingLedgerRevision,
   };
 }
 

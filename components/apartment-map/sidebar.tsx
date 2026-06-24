@@ -9,6 +9,7 @@ import type {
   MapState,
   PlanningContextSummary,
 } from "@/lib/domain/types";
+import type { PlanningThreadCache } from "@/lib/storage/planning-chat-storage";
 import type {
   SelectedMapEntity,
   VisibleMapLayers,
@@ -21,7 +22,13 @@ import { Button } from "@/components/ui/button";
 import { mapStateSchema } from "@/lib/domain/schemas";
 import { formatTargetLabel } from "@/lib/map/target-points";
 
+type SidebarNotice =
+  | { kind: "info"; message: string }
+  | { kind: "error"; message: string }
+  | null;
+
 export function Sidebar({
+  ownershipMode,
   apiKey,
   remembered,
   mapState,
@@ -30,10 +37,13 @@ export function Sidebar({
   selectedZoneIds,
   listings,
   planningResetToken,
+  planningOwnershipMode,
+  sidebarNotice,
   onApiKeyChange,
   onDeselectSelectedEntity,
   onImportMapState,
   onMapStateChange,
+  onPlanningMapStateChange,
   onPlanningListingLeadChange,
   onVisibleLayersChange,
   onUndo,
@@ -42,6 +52,7 @@ export function Sidebar({
   canUndo,
   canResetSelectedShapes,
 }: {
+  ownershipMode: "local" | "workspace";
   apiKey: string | null;
   remembered: boolean;
   mapState: MapState;
@@ -50,28 +61,46 @@ export function Sidebar({
   selectedZoneIds: string[];
   listings: ListingDisplayCandidate[];
   planningResetToken: number;
+  planningOwnershipMode:
+    | { kind: "local" }
+    | {
+        kind: "workspace";
+        mapRevision: string;
+        listingLedgerRevision: string;
+        invalidatedActionIds: string[];
+        threadCache: PlanningThreadCache | null;
+      };
+  sidebarNotice: SidebarNotice;
   onApiKeyChange: (key: string | null, remembered: boolean) => void;
   onDeselectSelectedEntity: () => void;
-  onImportMapState: (state: MapState) => void;
+  onImportMapState: (state: MapState) => boolean | Promise<boolean>;
   onMapStateChange: (state: MapState) => void;
+  onPlanningMapStateChange: (input: {
+    mapState: MapState;
+    mapRevision?: string | null;
+  }) => void;
   onPlanningListingLeadChange: (input: {
     lead: ListingLead;
     contextSummary: PlanningContextSummary | null;
     geocodeAuthorization: GeocodeAuthorization | null;
+    listingLedgerRevision?: string | null;
   }) => void;
   onVisibleLayersChange: (layers: VisibleMapLayers) => void;
   onUndo: () => void;
-  onReset: () => void;
+  onReset: () => boolean | Promise<boolean>;
   onResetSelectedShapes: () => void;
   canUndo: boolean;
   canResetSelectedShapes: boolean;
 }) {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [pendingImport, setPendingImport] = useState<{
     fileName: string;
     mapState: MapState;
   } | null>(null);
+  const isWorkspaceMode = ownershipMode === "workspace";
   const selectedCorridor =
     selectedEntity?.kind === "corridor"
       ? mapState.corridors.find((corridor) => corridor.id === selectedEntity.id) ?? null
@@ -91,9 +120,11 @@ export function Sidebar({
   async function copyMapJson() {
     try {
       await navigator.clipboard.writeText(JSON.stringify(mapState, null, 2));
-      setWorkspaceStatus("Copied local map JSON.");
+      setWorkspaceStatus(isWorkspaceMode ? "Copied workspace map JSON." : "Copied local map JSON.");
     } catch {
-      setWorkspaceStatus("Could not copy local map JSON.");
+      setWorkspaceStatus(
+        isWorkspaceMode ? "Could not copy workspace map JSON." : "Could not copy local map JSON.",
+      );
     }
   }
 
@@ -128,14 +159,24 @@ export function Sidebar({
     }
   }
 
-  function replaceCurrentMap() {
+  async function replaceCurrentMap() {
     if (!pendingImport) {
       return;
     }
 
-    onImportMapState(pendingImport.mapState);
-    setWorkspaceStatus(`Imported ${pendingImport.fileName}.`);
-    setPendingImport(null);
+    setIsImporting(true);
+
+    try {
+      const succeeded = await onImportMapState(pendingImport.mapState);
+      if (!succeeded) {
+        return;
+      }
+
+      setWorkspaceStatus(`Imported ${pendingImport.fileName}.`);
+      setPendingImport(null);
+    } finally {
+      setIsImporting(false);
+    }
   }
 
   function cancelImport() {
@@ -143,10 +184,27 @@ export function Sidebar({
     setWorkspaceStatus("Map import canceled.");
   }
 
+  async function handleReset() {
+    setIsResetting(true);
+
+    try {
+      await onReset();
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
+  const importConfirmationMessage = isWorkspaceMode
+    ? "Review saved versions before continuing. Current pins, corridors, and zones will be replaced in this workspace. Pending reviewed map actions for the old revision will be disabled."
+    : "Review saved versions before continuing. Current pins, corridors, zones, chat, and staged listings will be cleared from this workspace.";
+  const visibleNotice = sidebarNotice ?? (workspaceStatus ? { kind: "info", message: workspaceStatus } : null);
+
   return (
     <aside className="flex min-h-[42vh] flex-col bg-sidebar text-sidebar-foreground lg:max-h-screen lg:min-h-screen lg:overflow-y-auto">
       <div className="border-b border-sidebar-border p-4">
-        <p className="text-xs uppercase text-muted-foreground">Local-first workspace</p>
+        <p className="text-xs uppercase text-muted-foreground">
+          {isWorkspaceMode ? "Signed-in workspace" : "Local-first workspace"}
+        </p>
         <h1 className="mt-1 text-xl font-semibold">SF Apartment Hunt</h1>
         <p className="mt-2 text-xs text-muted-foreground">
           {mapState.zones.length} zones, {selectedZoneIds.length} selected,{" "}
@@ -167,8 +225,8 @@ export function Sidebar({
         <Button disabled={!canResetSelectedShapes} variant="outline" onClick={onResetSelectedShapes}>
           Reset selected shape
         </Button>
-        <Button variant="outline" onClick={onReset}>
-          Reset local map
+        <Button disabled={isResetting} variant="outline" onClick={() => void handleReset()}>
+          {isWorkspaceMode ? "Reset workspace map" : "Reset local map"}
         </Button>
         <Button variant="outline" onClick={copyMapJson}>
           Copy map JSON
@@ -188,15 +246,12 @@ export function Sidebar({
       {pendingImport ? (
         <div className="border-b border-sidebar-border bg-background px-3 py-2 text-xs">
           <p className="font-medium">Importing this file will replace the current map.</p>
-          <p className="mt-1 text-muted-foreground">
-            Review saved versions before continuing. Current pins, corridors, zones, chat, and staged
-            listings will be cleared from this workspace.
-          </p>
+          <p className="mt-1 text-muted-foreground">{importConfirmationMessage}</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button size="sm" onClick={replaceCurrentMap}>
+            <Button disabled={isImporting} size="sm" onClick={() => void replaceCurrentMap()}>
               Replace current map
             </Button>
-            <Button size="sm" variant="outline" onClick={cancelImport}>
+            <Button disabled={isImporting} size="sm" variant="outline" onClick={cancelImport}>
               Cancel
             </Button>
           </div>
@@ -220,7 +275,17 @@ export function Sidebar({
               </label>
             ))}
           </div>
-          {workspaceStatus ? <p className="mt-3 text-xs text-muted-foreground">{workspaceStatus}</p> : null}
+          {visibleNotice ? (
+            <p
+              className={
+                visibleNotice.kind === "error"
+                  ? "mt-3 text-xs text-destructive"
+                  : "mt-3 text-xs text-muted-foreground"
+              }
+            >
+              {visibleNotice.message}
+            </p>
+          ) : null}
         </section>
 
         {selectedTarget ? (
@@ -247,11 +312,12 @@ export function Sidebar({
         <PlanningChatPanel
           apiKey={apiKey}
           mapState={mapState}
+          ownershipMode={planningOwnershipMode}
           selectedEntity={selectedEntity}
           selectedZoneIds={selectedZoneIds}
           visibleLayers={visibleLayers}
           resetToken={planningResetToken}
-          onMapStateChange={onMapStateChange}
+          onPlanningMapStateChange={onPlanningMapStateChange}
           onPlanningListingLeadChange={onPlanningListingLeadChange}
         />
       </div>

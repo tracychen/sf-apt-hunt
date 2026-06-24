@@ -13,6 +13,7 @@ import type {
   PlanningThread,
   ExecutePlanningActionResponse,
 } from "@/lib/domain/types";
+import { createDbPlanningStore } from "@/lib/server/planning/store-db";
 import { createMemoryPlanningStore } from "@/lib/server/planning/memory-store";
 import { createRedisPlanningStore } from "@/lib/server/planning/redis-store";
 
@@ -172,6 +173,10 @@ export function getPlanningStore(): PlanningStore {
     : createMemoryPlanningStore();
 
   return planningStoreGlobal[planningStoreGlobalKey];
+}
+
+export function getPlanningStoreForWorkspace(workspaceId: string): PlanningStore {
+  return createDbPlanningStore(workspaceId);
 }
 
 function hasRedisEnvironment() {

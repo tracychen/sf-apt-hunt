@@ -16,6 +16,15 @@ import { runMapAssistant } from "@/lib/server/map-assistant-service";
 const planningStoreMock = vi.hoisted(() => ({
   current: undefined as PlanningStore | undefined,
 }));
+const workspacePlanningStoresMock = vi.hoisted(() => ({
+  current: new Map<string, PlanningStore>(),
+}));
+const sessionMock = vi.hoisted(() => ({
+  userId: null as string | null,
+}));
+const workspaceMock = vi.hoisted(() => ({
+  id: "workspace-1",
+}));
 
 vi.mock("@/lib/server/planning/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/planning/store")>();
@@ -29,8 +38,42 @@ vi.mock("@/lib/server/planning/store", async (importOriginal) => {
 
       return planningStoreMock.current;
     },
+    getPlanningStoreForWorkspace: (workspaceId: string) => {
+      const store = workspacePlanningStoresMock.current.get(workspaceId);
+
+      if (!store) {
+        throw new Error(`Workspace planning store mock was not initialized for ${workspaceId}.`);
+      }
+
+      return store;
+    },
   };
 });
+
+vi.mock("@/lib/server/auth/session", () => ({
+  getCurrentUserId: async () => sessionMock.userId,
+}));
+
+vi.mock("@/lib/server/workspaces", () => ({
+  getOrCreateDefaultWorkspace: async (userId: string) => ({
+    workspace: {
+      id: workspaceMock.id,
+      userId,
+      name: "Apartment hunt",
+      listingLedgerRevision: "ledger-1",
+      createdAt: new Date("2026-06-23T12:00:00.000Z"),
+      updatedAt: new Date("2026-06-23T12:00:00.000Z"),
+    },
+    mapSnapshot: {
+      id: "snapshot-1",
+      workspaceId: workspaceMock.id,
+      revision: "map-1",
+      mapState: seedMapState,
+      createdAt: new Date("2026-06-23T12:00:00.000Z"),
+      updatedAt: new Date("2026-06-23T12:00:00.000Z"),
+    },
+  }),
+}));
 
 vi.mock("@/lib/server/map-assistant-service", () => ({
   MissingStructuredOutputError: class MissingStructuredOutputError extends Error {},
@@ -77,6 +120,9 @@ function createPlanningRequest(message: string, overrides: Record<string, unknow
 describe("POST /api/ai/planning-chat", () => {
   beforeEach(() => {
     planningStoreMock.current = createMemoryPlanningStore();
+    workspacePlanningStoresMock.current = new Map();
+    sessionMock.userId = null;
+    workspaceMock.id = "workspace-1";
     runMapAssistantMock.mockReset();
     runListingSearchMock.mockReset();
   });
@@ -101,6 +147,68 @@ describe("POST /api/ai/planning-chat", () => {
     expect(response.status).toBe(401);
     expect(runMapAssistantMock).not.toHaveBeenCalled();
     expect(runListingSearchMock).not.toHaveBeenCalled();
+  });
+
+  test("signed-in planning chat does not require installation secret and uses the workspace store", async () => {
+    sessionMock.userId = "user-1";
+    workspacePlanningStoresMock.current.set(
+      "workspace-1",
+      createWorkspacePlanningStore("workspace-1"),
+    );
+    runMapAssistantMock.mockResolvedValue(createMapProposalOutcome());
+
+    const response = await POST(
+      createRequest(createPlanningRequest("Add pins for Solidcore in SF"), {
+        "x-sf-apt-installation-secret": "",
+      }),
+    );
+    const body = await response.json();
+    const workspaceStore = getWorkspaceStore("workspace-1");
+    const storedMessages = await workspaceStore.listRecentMessages(body.thread.id, 10);
+    const storedActions = await workspaceStore.listRecentActions(body.thread.id, 10);
+
+    expect(response.status).toBe(200);
+    expect(body.thread.clientInstallationId).toBe("workspace-1");
+    expect(storedMessages).toHaveLength(2);
+    expect(storedActions).toHaveLength(1);
+  });
+
+  test("signed-in planning chat rejects cross-site requests", async () => {
+    sessionMock.userId = "user-1";
+    workspacePlanningStoresMock.current.set(
+      "workspace-1",
+      createWorkspacePlanningStore("workspace-1"),
+    );
+
+    const response = await POST(
+      createRequest(createPlanningRequest("Add pins for Solidcore in SF"), {
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+        "x-sf-apt-installation-secret": "",
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Forbidden origin.",
+    });
+    expect(runMapAssistantMock).not.toHaveBeenCalled();
+    expect(runListingSearchMock).not.toHaveBeenCalled();
+  });
+
+  test("unsigned planning chat preserves installation-secret access for cross-site requests", async () => {
+    runMapAssistantMock.mockResolvedValue(createMapProposalOutcome());
+
+    const response = await POST(
+      createRequest(createPlanningRequest("Add pins for Solidcore in SF"), {
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(runMapAssistantMock).toHaveBeenCalledOnce();
   });
 
   test("rejects installation secrets serialized in the JSON body", async () => {
@@ -617,6 +725,43 @@ function getTestStore() {
   }
 
   return planningStoreMock.current;
+}
+
+function getWorkspaceStore(workspaceId: string) {
+  const store = workspacePlanningStoresMock.current.get(workspaceId);
+
+  if (!store) {
+    throw new Error(`Workspace planning store mock was not initialized for ${workspaceId}.`);
+  }
+
+  return store;
+}
+
+function createWorkspacePlanningStore(workspaceId: string): PlanningStore {
+  const baseStore = createMemoryPlanningStore();
+  const workspaceInstallationSecretHash = "workspace-mode-secret-hash";
+
+  return {
+    ...baseStore,
+    async createThread(input) {
+      return baseStore.createThread({
+        ...input,
+        clientInstallationId: workspaceId,
+        clientInstallationSecretHash: workspaceInstallationSecretHash,
+      });
+    },
+    async resetInstallation() {
+      return baseStore.resetInstallation({
+        clientInstallationId: workspaceId,
+        clientInstallationSecretHash: workspaceInstallationSecretHash,
+      });
+    },
+    async verifyThreadOwnership(threadId) {
+      const thread = await baseStore.getThread(threadId);
+
+      return thread?.clientInstallationId === workspaceId;
+    },
+  };
 }
 
 function createMapProposalOutcome(): Extract<MapAssistantOutcome, { kind: "proposal" }> {

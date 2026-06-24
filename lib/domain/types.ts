@@ -229,6 +229,24 @@ export type ListingLead = {
 
 export type ListingLedger = Record<string, ListingLead>;
 
+export type GeocodeCacheEntry = {
+  id: string;
+  workspaceId: string;
+  queryHash: string;
+  query: string;
+  result: {
+    coordinates: Coordinate | null;
+    geocodeQuery: string | null;
+    geocodeStatus: ListingCandidate["geocodeStatus"];
+    locationConfidence: ListingCandidate["locationConfidence"];
+    markerPrecision: ListingCandidate["markerPrecision"];
+    locationText: string | null;
+    neighborhoodGuess: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ListingPlanningSignal = {
   label: string;
   delta: number;
@@ -251,6 +269,55 @@ export type ListingSearchResponse = {
   caveats: string[];
   geocodeAuthorization: GeocodeAuthorization | null;
 };
+
+export type ListingsResponse = {
+  leads: ListingLead[];
+  listingLedgerRevision: string;
+};
+
+export type PatchListingRequest = {
+  expectedListingLedgerRevision: string;
+  status: "saved" | "dismissed";
+};
+
+export type PatchListingResponse =
+  | { ok: true; lead: ListingLead; listingLedgerRevision: string }
+  | {
+      ok: false;
+      error: "stale_listing_ledger_revision";
+      currentListingLedgerRevision: string;
+    }
+  | { ok: false; error: "listing_not_found" };
+
+export type PostGeocodeCacheRequest = {
+  expectedListingLedgerRevision: string;
+  canonicalUrl: string;
+  queryHash: string;
+  query: string;
+  result: {
+    coordinates: Coordinate | null;
+    geocodeQuery: string | null;
+    geocodeStatus: ListingCandidate["geocodeStatus"];
+    locationConfidence: ListingCandidate["locationConfidence"];
+    markerPrecision: ListingCandidate["markerPrecision"];
+    locationText: string | null;
+    neighborhoodGuess: string;
+  };
+};
+
+export type PostGeocodeCacheResponse =
+  | {
+      ok: true;
+      lead: ListingLead;
+      cacheEntry: GeocodeCacheEntry;
+      listingLedgerRevision: string;
+    }
+  | {
+      ok: false;
+      error: "stale_listing_ledger_revision";
+      currentListingLedgerRevision: string;
+    }
+  | { ok: false; error: "listing_not_found" };
 
 export type SelectedMapEntity =
   | { kind: "zone"; id: string }
@@ -285,6 +352,62 @@ export type MapSnapshot = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type WorkspaceRecord = {
+  id: string;
+  userId: string;
+  name: string;
+  listingLedgerRevision: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkspaceMapSnapshot = {
+  id: string;
+  workspaceId: string;
+  revision: string;
+  mapState: MapState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkspaceResponse = {
+  workspace: WorkspaceRecord;
+  mapSnapshot: WorkspaceMapSnapshot;
+  listingLedgerRevision: string;
+};
+
+export type PutWorkspaceMapRequest = {
+  expectedMapRevision: string;
+  mapState: MapState;
+};
+
+export type PutWorkspaceMapResponse =
+  | { ok: true; mapSnapshot: WorkspaceMapSnapshot; invalidatedActionIds: string[] }
+  | { ok: false; error: "stale_map_revision"; currentMapRevision: string };
+
+export type ImportWorkspaceMapRequest = PutWorkspaceMapRequest;
+export type ImportWorkspaceMapResponse = PutWorkspaceMapResponse;
+
+export type WorkspaceResetRequest = {
+  expectedMapRevision: string;
+  expectedListingLedgerRevision: string;
+  confirmation: "reset";
+};
+
+export type WorkspaceResetResponse =
+  | {
+      ok: true;
+      workspace: WorkspaceRecord;
+      mapSnapshot: WorkspaceMapSnapshot;
+      listingLedgerRevision: string;
+    }
+  | {
+      ok: false;
+      error: "stale_workspace_revision";
+      currentMapRevision: string;
+      currentListingLedgerRevision: string;
+    };
 
 export type PlanningListingCard = {
   lead: ListingLead;
@@ -383,7 +506,7 @@ export type PlanningActionExecutionRecord = {
   actionId: string;
   idempotencyKey: string;
   payloadHash: string;
-  status: "succeeded" | "failed";
+  status: "in_progress" | "succeeded" | "failed";
   createdAt: string;
   error?: string;
 };

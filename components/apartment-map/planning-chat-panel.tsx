@@ -44,27 +44,45 @@ const planningChatPlaceholder = [
 export function PlanningChatPanel({
   apiKey,
   mapState,
+  ownershipMode,
   selectedEntity,
   selectedZoneIds,
   visibleLayers,
   resetToken,
-  onMapStateChange,
+  onPlanningMapStateChange,
   onPlanningListingLeadChange,
 }: {
   apiKey: string | null;
   mapState: MapState;
+  ownershipMode:
+    | { kind: "local" }
+    | {
+        kind: "workspace";
+        mapRevision: string;
+        listingLedgerRevision: string;
+        invalidatedActionIds: string[];
+        threadCache: PlanningThreadCache | null;
+      };
   selectedEntity: SelectedMapEntity;
   selectedZoneIds: string[];
   visibleLayers: VisibleMapLayers;
   resetToken: number;
-  onMapStateChange: (state: MapState) => void;
+  onPlanningMapStateChange: (input: {
+    mapState: MapState;
+    mapRevision?: string | null;
+  }) => void;
   onPlanningListingLeadChange: (input: {
     lead: ListingLead;
     contextSummary: PlanningContextSummary | null;
     geocodeAuthorization: GeocodeAuthorization | null;
+    listingLedgerRevision?: string | null;
   }) => void;
 }) {
-  const installationRef = useRef(loadOrCreatePlanningInstallation());
+  const installationRef = useRef(
+    ownershipMode.kind === "local"
+      ? loadOrCreatePlanningInstallation()
+      : { clientInstallationId: "workspace", clientInstallationSecret: "" },
+  );
   const [message, setMessage] = useState("");
   const [threadCache, setThreadCache] = useState<PlanningThreadCache | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,8 +102,20 @@ export function PlanningChatPanel({
     () => buildVisibleContext({ mapState, selectedEntity, selectedZoneIds, visibleLayers }),
     [mapState, selectedEntity, selectedZoneIds, visibleLayers],
   );
+  const workspaceThreadCache =
+    ownershipMode.kind === "workspace" ? ownershipMode.threadCache : null;
+  const workspaceInvalidatedActionIds =
+    ownershipMode.kind === "workspace" ? ownershipMode.invalidatedActionIds : null;
 
   useEffect(() => {
+    if (ownershipMode.kind === "workspace") {
+      const frame = window.requestAnimationFrame(() => {
+        setThreadCache(workspaceThreadCache);
+      });
+
+      return () => window.cancelAnimationFrame(frame);
+    }
+
     const frame = window.requestAnimationFrame(() => {
       setThreadCache(loadPlanningThreadCache());
     });
@@ -93,7 +123,25 @@ export function PlanningChatPanel({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [ownershipMode.kind, workspaceThreadCache]);
+
+  const invalidatedActionIdsKey =
+    workspaceInvalidatedActionIds?.join("|") ?? "";
+
+  useEffect(() => {
+    if (!workspaceInvalidatedActionIds || workspaceInvalidatedActionIds.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      setThreadCache((current) => {
+        const nextCache = invalidateCachedActionCards(current, workspaceInvalidatedActionIds);
+        return nextCache;
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [invalidatedActionIdsKey, workspaceInvalidatedActionIds]);
 
   useEffect(() => {
     if (resetToken === 0 || resetToken === lastHandledResetTokenRef.current) {
@@ -116,18 +164,22 @@ export function PlanningChatPanel({
     setResetWarning(null);
     setStatus(null);
     setIsSubmitting(false);
-    clearPlanningChatState();
+    if (ownershipMode.kind === "local") {
+      clearPlanningChatState();
+    }
     setThreadCache(null);
 
     void (async () => {
       try {
         const response = await fetch("/api/planning/reset", {
           method: "POST",
-          headers: {
+          headers: buildPlanningHeaders(
+            ownershipMode,
+            installationRef.current.clientInstallationSecret,
+            {
             "content-type": "application/json",
-            "x-sf-apt-installation-secret":
-              installationRef.current.clientInstallationSecret,
-          },
+            },
+          ),
           body: JSON.stringify({
             clientInstallationId: installationRef.current.clientInstallationId,
           }),
@@ -142,7 +194,7 @@ export function PlanningChatPanel({
         }
       }
     })();
-  }, [resetToken]);
+  }, [ownershipMode, resetToken]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -170,19 +222,27 @@ export function PlanningChatPanel({
     ): Promise<PlanningChatResponse> {
       const response = await fetch("/api/ai/planning-chat", {
         method: "POST",
-        headers: {
+        headers: buildPlanningHeaders(
+          ownershipMode,
+          installationRef.current.clientInstallationSecret,
+          {
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
-          "x-sf-apt-installation-secret":
-            installationRef.current.clientInstallationSecret,
-        },
+          },
+        ),
         body: JSON.stringify({
           threadId: requestThreadCache?.thread.id ?? null,
           clientInstallationId: installationRef.current.clientInstallationId,
           message: trimmedMessage,
           mapState,
-          mapRevision: requestThreadCache?.mapSnapshot.revision ?? null,
-          listingLedgerRevision: requestThreadCache?.listingLedgerRevision ?? null,
+          mapRevision:
+            ownershipMode.kind === "workspace"
+              ? ownershipMode.mapRevision
+              : requestThreadCache?.mapSnapshot.revision ?? null,
+          listingLedgerRevision:
+            ownershipMode.kind === "workspace"
+              ? ownershipMode.listingLedgerRevision
+              : requestThreadCache?.listingLedgerRevision ?? null,
           selectedEntity,
           visibleContext: currentContext,
         }),
@@ -240,7 +300,7 @@ export function PlanningChatPanel({
 
       setThreadCache((current) => {
         const nextCache = mergeThreadCache(current, parsed);
-        persistThreadCache(nextCache);
+        persistThreadCacheForCurrentMode(nextCache);
         return nextCache;
       });
 
@@ -297,7 +357,10 @@ export function PlanningChatPanel({
       payload: {
         kind: action.kind === "targetEdit" ? "targetEdit" : "mapProposal",
         operationIndexes: operationIndexes ?? getAllowedOperationIndexes(action),
-        expectedMapRevision: action.target.mapRevision,
+        expectedMapRevision:
+          ownershipMode.kind === "workspace"
+            ? ownershipMode.mapRevision
+            : action.target.mapRevision,
       },
     });
   }
@@ -337,7 +400,9 @@ export function PlanningChatPanel({
         payload: {
           kind,
           expectedListingLedgerRevision:
-            threadCache?.listingLedgerRevision ?? action.target.listingLedgerRevision,
+            ownershipMode.kind === "workspace"
+              ? ownershipMode.listingLedgerRevision
+              : threadCache?.listingLedgerRevision ?? action.target.listingLedgerRevision,
           expectedListingSnapshotHash: action.target.listingSnapshotHash,
         },
       },
@@ -368,11 +433,13 @@ export function PlanningChatPanel({
     try {
       const response = await fetch("/api/planning/actions/execute", {
         method: "POST",
-        headers: {
+        headers: buildPlanningHeaders(
+          ownershipMode,
+          installationRef.current.clientInstallationSecret,
+          {
           "content-type": "application/json",
-          "x-sf-apt-installation-secret":
-            installationRef.current.clientInstallationSecret,
-        },
+          },
+        ),
         body: JSON.stringify(request),
         signal: abortController.signal,
       });
@@ -396,35 +463,44 @@ export function PlanningChatPanel({
       const listingLead = parsed.listingLead;
 
       if (listingLead) {
-        mergeListingCandidatesIntoLedger({
-          candidates: [listingLead.candidate],
-          query: listingLead.lastSearchQuery,
-          now: listingLead.lastSeenAt,
-        });
+        if (ownershipMode.kind === "local") {
+          mergeListingCandidatesIntoLedger({
+            candidates: [listingLead.candidate],
+            query: listingLead.lastSearchQuery,
+            now: listingLead.lastSeenAt,
+          });
 
-        if (listingLead.status === "saved") {
-          saveListingLead(listingLead.canonicalUrl);
-        } else if (listingLead.status === "dismissed") {
-          dismissListingLead(listingLead.canonicalUrl);
+          if (listingLead.status === "saved") {
+            saveListingLead(listingLead.canonicalUrl);
+          } else if (listingLead.status === "dismissed") {
+            dismissListingLead(listingLead.canonicalUrl);
+          }
         }
 
         onPlanningListingLeadChange({
           lead: listingLead,
           contextSummary,
           geocodeAuthorization,
+          listingLedgerRevision: parsed.listingLedgerRevision ?? null,
         });
       }
 
       setThreadCache((current) => {
         const nextThreadCache = applyActionResult(current, parsed);
-        persistThreadCache(nextThreadCache);
+        persistThreadCacheForCurrentMode(nextThreadCache);
         return nextThreadCache;
       });
 
       if (parsed.mapState) {
-        onMapStateChange(parsed.mapState);
+        onPlanningMapStateChange({
+          mapState: parsed.mapState,
+          mapRevision: parsed.mapSnapshot?.revision ?? null,
+        });
       } else if (parsed.mapSnapshot?.mapState) {
-        onMapStateChange(parsed.mapSnapshot.mapState);
+        onPlanningMapStateChange({
+          mapState: parsed.mapSnapshot.mapState,
+          mapRevision: parsed.mapSnapshot.revision,
+        });
       }
 
       setStatus(renderActionStatus(parsed.action));
@@ -461,8 +537,18 @@ export function PlanningChatPanel({
   }
 
   function clearStoredThreadCache() {
-    clearPlanningChatState();
+    if (ownershipMode.kind === "local") {
+      clearPlanningChatState();
+    }
     setThreadCache(null);
+  }
+
+  function persistThreadCacheForCurrentMode(nextCache: PlanningThreadCache | null) {
+    if (ownershipMode.kind !== "local") {
+      return;
+    }
+
+    persistThreadCache(nextCache);
   }
 
   return (
@@ -906,6 +992,64 @@ function ProposalCard({
       </div>
     </div>
   );
+}
+
+function buildPlanningHeaders(
+  ownershipMode:
+    | { kind: "local" }
+    | {
+        kind: "workspace";
+        mapRevision: string;
+        listingLedgerRevision: string;
+        invalidatedActionIds: string[];
+        threadCache: PlanningThreadCache | null;
+      },
+  installationSecret: string,
+  headers: Record<string, string>,
+) {
+  if (ownershipMode.kind === "workspace") {
+    return headers;
+  }
+
+  return {
+    ...headers,
+    "x-sf-apt-installation-secret": installationSecret,
+  };
+}
+
+function invalidateCachedActionCards(
+  threadCache: PlanningThreadCache | null,
+  actionIds: string[],
+) {
+  if (!threadCache || actionIds.length === 0) {
+    return threadCache;
+  }
+
+  const invalidatedIds = new Set(actionIds);
+  let changed = false;
+  const nextActionRecords = threadCache.actionRecords.map((record) => {
+    if (!invalidatedIds.has(record.id) || record.status !== "pending") {
+      return record;
+    }
+
+    changed = true;
+    return {
+      ...record,
+      status: "failed" as const,
+      failureKind: "permanent" as const,
+      error: "Map changed before this proposal was applied.",
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  if (!changed) {
+    return threadCache;
+  }
+
+  return {
+    ...threadCache,
+    actionRecords: nextActionRecords,
+  };
 }
 
 function persistThreadCache(nextCache: PlanningThreadCache | null) {

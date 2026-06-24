@@ -30,6 +30,27 @@ Optional:
 - `NEXT_PUBLIC_TILE_URL`: OpenStreetMap-compatible tile URL.
 - `NEXT_PUBLIC_TILE_ATTRIBUTION`: attribution for the configured tile source.
 
+## Persistent Account Setup
+
+Signed-in persistence uses Better Auth, Google OAuth, Drizzle, and Neon Postgres.
+
+Required environment variables:
+
+- `DATABASE_URL`
+- `BETTER_AUTH_SECRET`
+- `BETTER_AUTH_URL`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+
+After changing the Drizzle schema, generate and apply migrations:
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+The signed-in app stores workspace map state, listing leads, geocode cache entries, and planning chat state in Postgres. The OpenAI API key remains browser-local.
+
 ## OpenAI Key Behavior
 
 The public app does not use a server-owned OpenAI key. Each visitor provides their own key in the UI before using assistant or listing search features.
@@ -62,11 +83,15 @@ Treat listing data as research leads, not final facts. Users must click through 
 
 ## Public Deployment Caveats
 
-This app is designed as a public, anonymous, local-first tool. It does not have an app database or user accounts; map edits, geocode cache entries, and optional remembered OpenAI keys live in the user's browser storage.
+This app supports two deployment modes:
+
+- Signed-out local mode stays public, anonymous, and local-first. Map edits, geocode cache entries, and optional remembered OpenAI keys live in the user's browser storage.
+- Signed-in persistent mode adds Google OAuth plus a Postgres-backed workspace for saved map state, listing leads, geocode cache entries, and planning chat state. The OpenAI API key still stays in browser storage.
 
 For a serverless or public deployment:
 
 - Set the production geocoding variables above before enabling listing pin geocoding.
+- Add the persistent account variables above before enabling signed-in persistence.
 - Keep `GOOGLE_MAPS_API_KEY`, `GEOCODE_NONCE_SECRET`, and Upstash credentials server-only.
 - Use HTTPS so browser storage and bearer-token requests are not sent over plaintext.
 - Expect serverless route handlers to be stateless; Redis is the production rate-limit authority.

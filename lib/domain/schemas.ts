@@ -5,10 +5,16 @@ import type {
   ExecutePlanningActionRequest,
   ExecutePlanningActionResponse,
   GeocodeAuthorization,
+  GeocodeCacheEntry,
+  ImportWorkspaceMapRequest,
+  ImportWorkspaceMapResponse,
   LineStringGeometry,
   ListingCandidate,
   ListingDisplayCandidate,
   ListingLead,
+  ListingsResponse,
+  PatchListingRequest,
+  PatchListingResponse,
   ListingSearchResponse,
   MapAssistantOutcome,
   MapPatchProposal,
@@ -23,8 +29,12 @@ import type {
   PlanningChatResponse,
   PlanningContextSummary,
   PlanningMessage,
+  PutWorkspaceMapRequest,
+  PutWorkspaceMapResponse,
   PlanningResetRequest,
   PlanningThread,
+  PostGeocodeCacheRequest,
+  PostGeocodeCacheResponse,
   PolygonGeometry,
   ResearchExclusion,
   ResearchExclusionReason,
@@ -42,6 +52,11 @@ import type {
   SourceCitation,
   TargetCorridor,
   TargetPoint,
+  WorkspaceMapSnapshot,
+  WorkspaceRecord,
+  WorkspaceResetRequest,
+  WorkspaceResetResponse,
+  WorkspaceResponse,
 } from "@/lib/domain/types";
 import { isCoordinateInSfBounds } from "@/lib/map/sf-bounds";
 import { validateResearchSummaryCorrelation } from "@/lib/map/research-summary";
@@ -82,6 +97,7 @@ const MAX_POLYGON_RING_POINTS = 200;
 const MAX_LINE_POINTS = 200;
 const MAX_ALLOWED_GEOCODE_QUERIES = 10;
 const MAX_LISTING_CANDIDATES = 100;
+const MAX_LISTING_LEDGER_ENTRIES = 500;
 const MAX_CITATIONS = 50;
 const MAX_CAVEATS = 50;
 const MAX_PROPOSAL_OPERATIONS = 50;
@@ -357,6 +373,36 @@ export const listingLeadSchema: z.ZodType<ListingLead> = z.object({
   candidate: persistedListingCandidateSchema,
 });
 
+const geocodeCacheResultSchema = z
+  .object({
+    coordinates: coordinateSchema.nullable(),
+    geocodeQuery: textSchema.nullable(),
+    geocodeStatus: z.enum([
+      "not_attempted",
+      "geocoded_exact",
+      "geocoded_approximate",
+      "failed",
+      "outside_sf",
+    ]),
+    locationConfidence: z.enum(["none", "low", "medium", "high"]),
+    markerPrecision: z.enum(["none", "exact", "approximate"]),
+    locationText: textSchema.nullable(),
+    neighborhoodGuess: nameSchema,
+  })
+  .strict();
+
+export const geocodeCacheEntrySchema: z.ZodType<GeocodeCacheEntry> = z
+  .object({
+    id: idSchema,
+    workspaceId: idSchema,
+    queryHash: requiredTextSchema,
+    query: requiredTextSchema,
+    result: geocodeCacheResultSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
 export const listingDisplayCandidateSchema: z.ZodType<ListingDisplayCandidate> = z.object({
   ...listingCandidateShape,
   canonicalUrl: listingCanonicalKeySchema,
@@ -375,6 +421,81 @@ export const listingSearchResponseSchema: z.ZodType<ListingSearchResponse> = z.o
   caveats: z.array(textSchema).max(MAX_CAVEATS),
   geocodeAuthorization: geocodeAuthorizationSchema.nullable(),
 });
+
+export const listingsResponseSchema: z.ZodType<ListingsResponse> = z
+  .object({
+    leads: z.array(listingLeadSchema).max(MAX_LISTING_LEDGER_ENTRIES),
+    listingLedgerRevision: idSchema,
+  })
+  .strict();
+
+export const patchListingRequestSchema: z.ZodType<PatchListingRequest> = z
+  .object({
+    expectedListingLedgerRevision: idSchema,
+    status: z.enum(["saved", "dismissed"]),
+  })
+  .strict();
+
+export const patchListingResponseSchema: z.ZodType<PatchListingResponse> = z.discriminatedUnion(
+  "ok",
+  [
+    z
+      .object({
+        ok: z.literal(true),
+        lead: listingLeadSchema,
+        listingLedgerRevision: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ok: z.literal(false),
+        error: z.literal("stale_listing_ledger_revision"),
+        currentListingLedgerRevision: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ok: z.literal(false),
+        error: z.literal("listing_not_found"),
+      })
+      .strict(),
+  ],
+);
+
+export const postGeocodeCacheRequestSchema: z.ZodType<PostGeocodeCacheRequest> = z
+  .object({
+    expectedListingLedgerRevision: idSchema,
+    canonicalUrl: listingCanonicalKeySchema,
+    queryHash: requiredTextSchema,
+    query: requiredTextSchema,
+    result: geocodeCacheResultSchema,
+  })
+  .strict();
+
+export const postGeocodeCacheResponseSchema: z.ZodType<PostGeocodeCacheResponse> =
+  z.discriminatedUnion("ok", [
+    z
+      .object({
+        ok: z.literal(true),
+        lead: listingLeadSchema,
+        cacheEntry: geocodeCacheEntrySchema,
+        listingLedgerRevision: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ok: z.literal(false),
+        error: z.literal("stale_listing_ledger_revision"),
+        currentListingLedgerRevision: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ok: z.literal(false),
+        error: z.literal("listing_not_found"),
+      })
+      .strict(),
+  ]);
 
 const updateTargetPlanningFieldsOperationSchema = z.object({
   type: z.literal("updateTargetPlanningFields"),
@@ -559,6 +680,95 @@ export const mapSnapshotSchema: z.ZodType<MapSnapshot> = z
     updatedAt: z.string().datetime(),
   })
   .strict();
+
+export const workspaceRecordSchema: z.ZodType<WorkspaceRecord> = z
+  .object({
+    id: idSchema,
+    userId: idSchema,
+    name: nameSchema,
+    listingLedgerRevision: idSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const workspaceMapSnapshotSchema: z.ZodType<WorkspaceMapSnapshot> = z
+  .object({
+    id: idSchema,
+    workspaceId: idSchema,
+    revision: idSchema,
+    mapState: mapStateSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const workspaceResponseSchema: z.ZodType<WorkspaceResponse> = z
+  .object({
+    workspace: workspaceRecordSchema,
+    mapSnapshot: workspaceMapSnapshotSchema,
+    listingLedgerRevision: idSchema,
+  })
+  .strict();
+
+export const putWorkspaceMapRequestSchema: z.ZodType<PutWorkspaceMapRequest> = z
+  .object({
+    expectedMapRevision: idSchema,
+    mapState: mapStateSchema,
+  })
+  .strict();
+
+export const putWorkspaceMapResponseSchema: z.ZodType<PutWorkspaceMapResponse> =
+  z.discriminatedUnion("ok", [
+    z
+      .object({
+        ok: z.literal(true),
+        mapSnapshot: workspaceMapSnapshotSchema,
+        invalidatedActionIds: z.array(idSchema),
+      })
+      .strict(),
+    z
+      .object({
+        ok: z.literal(false),
+        error: z.literal("stale_map_revision"),
+        currentMapRevision: idSchema,
+      })
+      .strict(),
+  ]);
+
+export const importWorkspaceMapRequestSchema: z.ZodType<ImportWorkspaceMapRequest> =
+  putWorkspaceMapRequestSchema;
+
+export const importWorkspaceMapResponseSchema: z.ZodType<ImportWorkspaceMapResponse> =
+  putWorkspaceMapResponseSchema;
+
+export const workspaceResetRequestSchema: z.ZodType<WorkspaceResetRequest> = z
+  .object({
+    expectedMapRevision: idSchema,
+    expectedListingLedgerRevision: idSchema,
+    confirmation: z.literal("reset"),
+  })
+  .strict();
+
+export const workspaceResetResponseSchema: z.ZodType<WorkspaceResetResponse> =
+  z.discriminatedUnion("ok", [
+    z
+      .object({
+        ok: z.literal(true),
+        workspace: workspaceRecordSchema,
+        mapSnapshot: workspaceMapSnapshotSchema,
+        listingLedgerRevision: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ok: z.literal(false),
+        error: z.literal("stale_workspace_revision"),
+        currentMapRevision: idSchema,
+        currentListingLedgerRevision: idSchema,
+      })
+      .strict(),
+  ]);
 
 const planningListingCardSchema = z
   .object({
@@ -765,7 +975,7 @@ export const planningActionExecutionRecordSchema: z.ZodType<PlanningActionExecut
     actionId: idSchema,
     idempotencyKey: idSchema,
     payloadHash: idSchema,
-    status: z.enum(["succeeded", "failed"]),
+    status: z.enum(["in_progress", "succeeded", "failed"]),
     createdAt: z.string().datetime(),
     error: textSchema.optional(),
   })

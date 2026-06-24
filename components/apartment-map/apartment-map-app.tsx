@@ -47,7 +47,7 @@ type MapPanelProps = {
   onSelectedZoneIdsChange: (ids: string[]) => void;
 };
 
-const defaultVisibleLayers: VisibleMapLayers = {
+export const defaultVisibleLayers: VisibleMapLayers = {
   zones: true,
   corridors: true,
   targets: true,
@@ -66,12 +66,12 @@ const LeafletMap = dynamic<MapPanelProps>(
   },
 );
 
-type MapHistoryState = {
+export type MapHistoryState = {
   current: MapState;
   history: MapState[];
 };
 
-type MapHistoryAction =
+export type MapHistoryAction =
   | { type: "hydrate"; state: MapState }
   | { type: "update"; state: MapState }
   | { type: "undo" }
@@ -81,10 +81,10 @@ function pushHistory(history: MapState[], current: MapState) {
   return [...history.slice(-19), current];
 }
 
-function mapHistoryReducer(state: MapHistoryState, action: MapHistoryAction): MapHistoryState {
+export function mapHistoryReducer(state: MapHistoryState, action: MapHistoryAction): MapHistoryState {
   switch (action.type) {
     case "hydrate":
-      return { ...state, current: action.state };
+      return { current: action.state, history: [] };
     case "update":
       return {
         current: action.state,
@@ -108,6 +108,32 @@ function mapHistoryReducer(state: MapHistoryState, action: MapHistoryAction): Ma
         history: pushHistory(state.history, state.current),
       };
   }
+}
+
+export function ApartmentMapViewport({
+  mapState,
+  listings,
+  selectedEntity,
+  selectedZoneIds,
+  visibleLayers,
+  onMapStateChange,
+  onSelectedEntityChange,
+  onSelectedZoneIdsChange,
+}: MapPanelProps) {
+  return (
+    <section className="min-h-[58vh] border-b border-border lg:min-h-screen lg:border-b-0 lg:border-r">
+      <LeafletMap
+        mapState={mapState}
+        listings={listings}
+        selectedEntity={selectedEntity}
+        selectedZoneIds={selectedZoneIds}
+        visibleLayers={visibleLayers}
+        onMapStateChange={onMapStateChange}
+        onSelectedEntityChange={onSelectedEntityChange}
+        onSelectedZoneIdsChange={onSelectedZoneIdsChange}
+      />
+    </section>
+  );
 }
 
 export function ApartmentMapApp() {
@@ -206,6 +232,7 @@ export function ApartmentMapApp() {
     setPlanningResetToken((current) => current + 1);
     clearListingLedger();
     clearMapState();
+    return true;
   }
 
   function importMapState(nextState: MapState) {
@@ -218,6 +245,7 @@ export function ApartmentMapApp() {
     setActiveListingFilters(null);
     setPlanningResetToken((current) => current + 1);
     clearListingLedger();
+    return true;
   }
 
   function resetSelectedShape() {
@@ -338,19 +366,18 @@ export function ApartmentMapApp() {
 
   return (
     <main className="grid min-h-screen grid-cols-1 bg-background text-foreground lg:grid-cols-[minmax(0,1fr)_420px]">
-      <section className="min-h-[58vh] border-b border-border lg:min-h-screen lg:border-b-0 lg:border-r">
-        <LeafletMap
-          mapState={mapState}
-          listings={listings}
-          selectedEntity={selectedEntity}
-          selectedZoneIds={selectedZoneIds}
-          visibleLayers={visibleLayers}
-          onMapStateChange={updateMapState}
-          onSelectedEntityChange={setSelectedEntity}
-          onSelectedZoneIdsChange={setSelectedZoneIds}
-        />
-      </section>
+      <ApartmentMapViewport
+        mapState={mapState}
+        listings={listings}
+        selectedEntity={selectedEntity}
+        selectedZoneIds={selectedZoneIds}
+        visibleLayers={visibleLayers}
+        onMapStateChange={updateMapState}
+        onSelectedEntityChange={setSelectedEntity}
+        onSelectedZoneIdsChange={setSelectedZoneIds}
+      />
       <Sidebar
+        ownershipMode="local"
         apiKey={apiKey}
         remembered={remembered}
         mapState={mapState}
@@ -359,10 +386,13 @@ export function ApartmentMapApp() {
         selectedZoneIds={selectedZoneIds}
         listings={listings}
         planningResetToken={planningResetToken}
+        planningOwnershipMode={{ kind: "local" }}
+        sidebarNotice={null}
         onApiKeyChange={updateApiKey}
         onDeselectSelectedEntity={() => setSelectedEntity(null)}
         onImportMapState={importMapState}
         onMapStateChange={updateMapState}
+        onPlanningMapStateChange={({ mapState: nextMapState }) => updateMapState(nextMapState)}
         onPlanningListingLeadChange={handlePlanningListingLeadChange}
         onVisibleLayersChange={setVisibleLayers}
         onUndo={undoLastEdit}
@@ -375,7 +405,10 @@ export function ApartmentMapApp() {
   );
 }
 
-function resetMapEntity(mapState: MapState, selectedEntity: NonNullable<SelectedMapEntity>) {
+export function resetMapEntity(
+  mapState: MapState,
+  selectedEntity: NonNullable<SelectedMapEntity>,
+) {
   switch (selectedEntity.kind) {
     case "zone": {
       const seedZone = seedMapState.zones.find((zone) => zone.id === selectedEntity.id);
@@ -413,7 +446,7 @@ function resetMapEntity(mapState: MapState, selectedEntity: NonNullable<Selected
   }
 }
 
-function isUndoKeyboardShortcut(event: KeyboardEvent) {
+export function isUndoKeyboardShortcut(event: KeyboardEvent) {
   return (
     event.key.toLowerCase() === "z" &&
     (event.metaKey || event.ctrlKey) &&
@@ -422,7 +455,7 @@ function isUndoKeyboardShortcut(event: KeyboardEvent) {
   );
 }
 
-function isEditableKeyboardTarget(target: EventTarget | null) {
+export function isEditableKeyboardTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) {
     return false;
   }
@@ -442,7 +475,7 @@ type ScoreAndSortListingLeadsOptions = {
   selectedZoneIds: string[];
 };
 
-function scoreAndSortListingLeads({
+export function scoreAndSortListingLeads({
   leads,
   filters,
   mapState,
@@ -453,7 +486,7 @@ function scoreAndSortListingLeads({
     .sort(compareListingDisplayCandidates);
 }
 
-function upsertListingLead(current: ListingLead[], nextLead: ListingLead) {
+export function upsertListingLead(current: ListingLead[], nextLead: ListingLead) {
   const existingIndex = current.findIndex(
     (lead) => lead.canonicalUrl === nextLead.canonicalUrl,
   );
@@ -467,7 +500,9 @@ function upsertListingLead(current: ListingLead[], nextLead: ListingLead) {
   return next;
 }
 
-function planningFiltersFromContextSummary(contextSummary: PlanningContextSummary): ListingSearchFilters {
+export function planningFiltersFromContextSummary(
+  contextSummary: PlanningContextSummary,
+): ListingSearchFilters {
   return {
     maxBudget: contextSummary.budget,
     beds: contextSummary.beds ?? "any",
@@ -481,10 +516,13 @@ type GeocodeListingCandidateOptions = {
   authorization: GeocodeAuthorization;
   candidates: Array<ListingLead["candidate"]>;
   signal?: AbortSignal;
-  onResult: (candidateId: string, update: Partial<ListingLead["candidate"]>) => void;
+  onResult: (
+    candidateId: string,
+    update: Partial<ListingLead["candidate"]>,
+  ) => void | Promise<void>;
 };
 
-function applyCachedGeocodeEntries(leads: ListingLead[]) {
+export function applyCachedGeocodeEntries(leads: ListingLead[]) {
   const cache = loadGeocodeCache();
   const cachedCandidateIds = new Set<string>();
   const cachedLeads = leads.map((lead) => {
@@ -529,7 +567,7 @@ function applyCachedGeocodeEntry(
   };
 }
 
-function selectCandidatesToGeocode(
+export function selectCandidatesToGeocode(
   authorization: GeocodeAuthorization,
   candidates: Array<ListingLead["candidate"]>,
   cachedCandidateIds: Set<string>,
@@ -548,7 +586,7 @@ function selectCandidatesToGeocode(
     .slice(0, authorization.maxAttempts);
 }
 
-async function geocodeListingCandidates({
+export async function geocodeListingCandidates({
   authorization,
   candidates,
   signal,
@@ -586,7 +624,7 @@ async function geocodeListingCandidates({
           coordinates: body.geocode.coordinates,
           markerPrecision: body.geocode.markerPrecision,
         });
-        onResult(candidate.id, {
+        await onResult(candidate.id, {
           coordinates: body.geocode.coordinates,
           geocodeStatus:
             body.geocode.markerPrecision === "exact"
@@ -604,13 +642,13 @@ async function geocodeListingCandidates({
           error: readGeocodeError(body),
         });
       }
-      onResult(candidate.id, { geocodeStatus: status ?? "failed" });
+      await onResult(candidate.id, { geocodeStatus: status ?? "failed" });
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
         return;
       }
 
-      onResult(candidate.id, { geocodeStatus: "failed" });
+      await onResult(candidate.id, { geocodeStatus: "failed" });
     }
   }
 }
