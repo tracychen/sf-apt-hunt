@@ -33,7 +33,7 @@ export function OnboardingPanel({
 
   if (progress.dismissed) {
     return (
-      <section className="border-b border-sidebar-border p-3 text-xs">
+      <section className="pointer-events-auto w-fit max-w-full border border-border bg-background/95 p-2 text-xs shadow-sm backdrop-blur">
         <Button size="sm" variant="outline" onClick={onReview}>
           Show getting started
         </Button>
@@ -43,7 +43,7 @@ export function OnboardingPanel({
 
   if (isComplete && !progress.expanded) {
     return (
-      <section className="border-b border-sidebar-border p-3 text-xs">
+      <section className="pointer-events-auto w-full border border-border bg-background/95 p-3 text-xs shadow-sm backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-medium">Getting started complete</p>
           <div className="flex gap-2">
@@ -60,7 +60,7 @@ export function OnboardingPanel({
   }
 
   return (
-    <section className="border-b border-sidebar-border bg-background p-3 text-sm">
+    <section className="pointer-events-auto max-h-[min(58vh,34rem)] w-full overflow-y-auto border border-border bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="font-medium">Getting started</h2>

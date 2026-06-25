@@ -641,9 +641,15 @@ export function PersistentApartmentMapApp({
         selectedEntity={selectedEntity}
         selectedZoneIds={selectedZoneIds}
         visibleLayers={visibleLayers}
+        onboarding={onboarding}
+        onboardingHighlightMessage={onboardingHighlights.message}
         onMapStateChange={updateMapState}
         onSelectedEntityChange={setSelectedEntity}
         onSelectedZoneIdsChange={setSelectedZoneIds}
+        onShowOnboardingStep={(stepId) => {
+          onboarding.setPanelState({ lastHighlightedStepId: stepId });
+          onboardingHighlights.showOnboardingStep(stepId);
+        }}
       />
       <Sidebar
         ownershipMode="workspace"
@@ -654,7 +660,6 @@ export function PersistentApartmentMapApp({
         visibleLayers={visibleLayers}
         selectedZoneIds={selectedZoneIds}
         listings={listings}
-        onboarding={onboarding}
         planningResetToken={planningResetToken}
         planningOwnershipMode={{
           kind: "workspace",
@@ -664,7 +669,6 @@ export function PersistentApartmentMapApp({
           threadCache: workspaceState.planningThreadCache,
         }}
         sidebarNotice={sidebarNotice}
-        onboardingHighlightMessage={onboardingHighlights.message}
         onApiKeyChange={updateApiKey}
         onDeselectSelectedEntity={() => setSelectedEntity(null)}
         onImportMapState={importMapState}
@@ -673,10 +677,6 @@ export function PersistentApartmentMapApp({
         onPlanningChatOnboardingMilestone={handlePlanningChatOnboardingMilestone}
         onPlanningMapStateChange={applyPlanningMapState}
         onPlanningListingLeadChange={handlePlanningListingLeadChange}
-        onShowOnboardingStep={(stepId) => {
-          onboarding.setPanelState({ lastHighlightedStepId: stepId });
-          onboardingHighlights.showOnboardingStep(stepId);
-        }}
         onVisibleLayersChange={setVisibleLayers}
         onUndo={undoLastEdit}
         onReset={resetWorkspaceMap}

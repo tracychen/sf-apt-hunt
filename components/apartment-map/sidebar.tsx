@@ -7,7 +7,6 @@ import type {
   ListingDisplayCandidate,
   ListingLead,
   MapState,
-  OnboardingStepId,
   PlanningContextSummary,
 } from "@/lib/domain/types";
 import type { PlanningThreadCache } from "@/lib/storage/planning-chat-storage";
@@ -18,7 +17,6 @@ import type {
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { AreaEditor } from "@/components/apartment-map/area-editor";
 import { CorridorEditor } from "@/components/apartment-map/corridor-editor";
-import { OnboardingPanel } from "@/components/apartment-map/onboarding-panel";
 import {
   PlanningChatPanel,
   type PlanningChatOnboardingMilestone,
@@ -27,7 +25,6 @@ import {
   TargetEditor,
   type AnchorSemanticEdit,
 } from "@/components/apartment-map/target-editor";
-import type { OnboardingController } from "@/components/apartment-map/use-onboarding-controller";
 import { Button } from "@/components/ui/button";
 import { mapStateSchema } from "@/lib/domain/schemas";
 import { formatTargetLabel } from "@/lib/map/target-points";
@@ -46,11 +43,9 @@ export function Sidebar({
   visibleLayers,
   selectedZoneIds,
   listings,
-  onboarding,
   planningResetToken,
   planningOwnershipMode,
   sidebarNotice,
-  onboardingHighlightMessage,
   onApiKeyChange,
   onDeselectSelectedEntity,
   onImportMapState,
@@ -59,7 +54,6 @@ export function Sidebar({
   onPlanningChatOnboardingMilestone,
   onPlanningMapStateChange,
   onPlanningListingLeadChange,
-  onShowOnboardingStep,
   onVisibleLayersChange,
   onUndo,
   onReset,
@@ -75,7 +69,6 @@ export function Sidebar({
   visibleLayers: VisibleMapLayers;
   selectedZoneIds: string[];
   listings: ListingDisplayCandidate[];
-  onboarding: OnboardingController;
   planningResetToken: number;
   planningOwnershipMode:
     | { kind: "local" }
@@ -87,7 +80,6 @@ export function Sidebar({
         threadCache: PlanningThreadCache | null;
       };
   sidebarNotice: SidebarNotice;
-  onboardingHighlightMessage: string | null;
   onApiKeyChange: (key: string | null, remembered: boolean) => void;
   onDeselectSelectedEntity: () => void;
   onImportMapState: (state: MapState) => boolean | Promise<boolean>;
@@ -104,7 +96,6 @@ export function Sidebar({
     geocodeAuthorization: GeocodeAuthorization | null;
     listingLedgerRevision?: string | null;
   }) => void;
-  onShowOnboardingStep: (stepId: OnboardingStepId) => void;
   onVisibleLayersChange: (layers: VisibleMapLayers) => void;
   onUndo: () => void;
   onReset: () => boolean | Promise<boolean>;
@@ -240,17 +231,6 @@ export function Sidebar({
         </p>
       </div>
 
-      <OnboardingPanel
-        completedCount={onboarding.completedCount}
-        persistenceError={onboarding.persistenceError}
-        progress={onboarding.progress}
-        onDismiss={() => onboarding.setPanelState({ dismissed: true, expanded: false })}
-        onReset={onboarding.reset}
-        onReview={() => onboarding.setPanelState({ dismissed: false, expanded: true })}
-        onShowStep={onShowOnboardingStep}
-        highlightMessage={onboardingHighlightMessage}
-      />
-
       <div className="flex flex-wrap gap-2 border-b border-sidebar-border p-3">
         <Button disabled={!canUndo} variant="outline" onClick={onUndo}>
           Undo
@@ -323,9 +303,6 @@ export function Sidebar({
             >
               {visibleNotice.message}
             </p>
-          ) : null}
-          {onboardingHighlightMessage ? (
-            <p className="mt-3 text-xs text-muted-foreground">{onboardingHighlightMessage}</p>
           ) : null}
         </section>
 

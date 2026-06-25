@@ -77,6 +77,28 @@ test("styles onboarding highlight popovers with app chrome", async ({ page }) =>
   expect(styles.borderWidth).toBe("1px");
 });
 
+test("shows getting started overlay on the map instead of in the sidebar", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto("/");
+
+  const sidebar = page.locator("aside");
+  const overlay = page.getByTestId("map-onboarding-overlay");
+
+  await expect(sidebar.getByRole("heading", { name: "Getting started" })).toHaveCount(0);
+  await expect(overlay.getByRole("heading", { name: "Getting started" })).toBeVisible();
+
+  const mapBox = await page.locator(".leaflet-container").boundingBox();
+  const overlayBox = await overlay.boundingBox();
+  const sidebarBox = await sidebar.boundingBox();
+
+  expect(mapBox).not.toBeNull();
+  expect(overlayBox).not.toBeNull();
+  expect(sidebarBox).not.toBeNull();
+  expect(overlayBox!.x).toBeGreaterThanOrEqual(mapBox!.x);
+  expect(overlayBox!.x).toBeLessThan(sidebarBox!.x);
+  expect(overlayBox!.y).toBeGreaterThanOrEqual(mapBox!.y);
+});
+
 test("target planning anchors show purpose labels and radius rings", async ({ page }) => {
   await loadSamplePlanningMap(page);
   await page.goto("/");

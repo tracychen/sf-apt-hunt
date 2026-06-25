@@ -9,6 +9,7 @@ import type {
   ListingLead,
   ListingSearchFilters,
   MapState,
+  OnboardingStepId,
   PlanningContextSummary,
 } from "@/lib/domain/types";
 import {
@@ -36,10 +37,14 @@ import type {
 } from "@/components/apartment-map/leaflet-map";
 import type { PlanningChatOnboardingMilestone } from "@/components/apartment-map/planning-chat-panel";
 import { Sidebar } from "@/components/apartment-map/sidebar";
-import { useOnboardingController } from "@/components/apartment-map/use-onboarding-controller";
+import { OnboardingPanel } from "@/components/apartment-map/onboarding-panel";
+import {
+  useOnboardingController,
+  type OnboardingController,
+} from "@/components/apartment-map/use-onboarding-controller";
 import { useOnboardingHighlights } from "@/components/apartment-map/use-onboarding-highlights";
 
-type MapPanelProps = {
+type LeafletMapPanelProps = {
   mapState: MapState;
   listings: ListingDisplayCandidate[];
   selectedEntity: SelectedMapEntity;
@@ -50,6 +55,12 @@ type MapPanelProps = {
   onSelectedZoneIdsChange: (ids: string[]) => void;
 };
 
+type MapViewportProps = LeafletMapPanelProps & {
+  onboarding: OnboardingController;
+  onboardingHighlightMessage: string | null;
+  onShowOnboardingStep: (stepId: OnboardingStepId) => void;
+};
+
 export const defaultVisibleLayers: VisibleMapLayers = {
   zones: true,
   areas: true,
@@ -58,7 +69,7 @@ export const defaultVisibleLayers: VisibleMapLayers = {
   listings: true,
 };
 
-const LeafletMap = dynamic<MapPanelProps>(
+const LeafletMap = dynamic<LeafletMapPanelProps>(
   () => import("@/components/apartment-map/leaflet-map").then((module) => module.LeafletMap),
   {
     ssr: false,
@@ -120,12 +131,15 @@ export function ApartmentMapViewport({
   selectedEntity,
   selectedZoneIds,
   visibleLayers,
+  onboarding,
+  onboardingHighlightMessage,
   onMapStateChange,
   onSelectedEntityChange,
   onSelectedZoneIdsChange,
-}: MapPanelProps) {
+  onShowOnboardingStep,
+}: MapViewportProps) {
   return (
-    <section className="min-h-[58vh] border-b border-border lg:min-h-screen lg:border-b-0 lg:border-r">
+    <section className="relative min-h-[58vh] border-b border-border lg:min-h-screen lg:border-b-0 lg:border-r">
       <LeafletMap
         mapState={mapState}
         listings={listings}
@@ -136,6 +150,21 @@ export function ApartmentMapViewport({
         onSelectedEntityChange={onSelectedEntityChange}
         onSelectedZoneIdsChange={onSelectedZoneIdsChange}
       />
+      <div
+        className="pointer-events-none absolute inset-x-3 top-3 z-[500] max-w-sm lg:right-auto"
+        data-testid="map-onboarding-overlay"
+      >
+        <OnboardingPanel
+          completedCount={onboarding.completedCount}
+          persistenceError={onboarding.persistenceError}
+          progress={onboarding.progress}
+          onDismiss={() => onboarding.setPanelState({ dismissed: true, expanded: false })}
+          onReset={onboarding.reset}
+          onReview={() => onboarding.setPanelState({ dismissed: false, expanded: true })}
+          onShowStep={onShowOnboardingStep}
+          highlightMessage={onboardingHighlightMessage}
+        />
+      </div>
     </section>
   );
 }
@@ -416,9 +445,15 @@ export function ApartmentMapApp() {
         selectedEntity={selectedEntity}
         selectedZoneIds={selectedZoneIds}
         visibleLayers={visibleLayers}
+        onboarding={onboarding}
+        onboardingHighlightMessage={onboardingHighlights.message}
         onMapStateChange={updateMapState}
         onSelectedEntityChange={setSelectedEntity}
         onSelectedZoneIdsChange={setSelectedZoneIds}
+        onShowOnboardingStep={(stepId) => {
+          onboarding.setPanelState({ lastHighlightedStepId: stepId });
+          onboardingHighlights.showOnboardingStep(stepId);
+        }}
       />
       <Sidebar
         ownershipMode="local"
@@ -429,11 +464,9 @@ export function ApartmentMapApp() {
         visibleLayers={visibleLayers}
         selectedZoneIds={selectedZoneIds}
         listings={listings}
-        onboarding={onboarding}
         planningResetToken={planningResetToken}
         planningOwnershipMode={{ kind: "local" }}
         sidebarNotice={null}
-        onboardingHighlightMessage={onboardingHighlights.message}
         onApiKeyChange={updateApiKey}
         onDeselectSelectedEntity={() => setSelectedEntity(null)}
         onImportMapState={importMapState}
@@ -442,10 +475,6 @@ export function ApartmentMapApp() {
         onPlanningChatOnboardingMilestone={handlePlanningChatOnboardingMilestone}
         onPlanningMapStateChange={applyPlanningMapState}
         onPlanningListingLeadChange={handlePlanningListingLeadChange}
-        onShowOnboardingStep={(stepId) => {
-          onboarding.setPanelState({ lastHighlightedStepId: stepId });
-          onboardingHighlights.showOnboardingStep(stepId);
-        }}
         onVisibleLayersChange={setVisibleLayers}
         onUndo={undoLastEdit}
         onReset={resetLocalMap}
