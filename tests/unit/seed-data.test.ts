@@ -33,6 +33,7 @@ describe("seedMapState", () => {
   });
 
   it("starts the default map with reference zones only", () => {
+    expect(seedMapState.areas).toEqual([]);
     expect(seedMapState.targets).toEqual([]);
     expect(seedMapState.corridors).toEqual([]);
     expect(seedMapState.zones).toHaveLength(samplePlanningMapState.zones.length);

@@ -29,6 +29,16 @@ export type MapZone = {
   notes: string[];
 };
 
+export type PlanningArea = {
+  id: string;
+  name: string;
+  purpose: string;
+  geometry: PolygonGeometry;
+  priority: Priority;
+  influence: TargetInfluence;
+  notes: string[];
+};
+
 export type TargetCorridor = {
   id: string;
   name: string;
@@ -321,6 +331,7 @@ export type PostGeocodeCacheResponse =
 
 export type SelectedMapEntity =
   | { kind: "zone"; id: string }
+  | { kind: "area"; id: string }
   | { kind: "corridor"; id: string }
   | { kind: "target"; id: string }
   | null;
@@ -615,6 +626,7 @@ export type MapPatchProposal = {
   operations: Array<
     | { type: "addTarget"; target: TargetPoint }
     | { type: "addCorridor"; corridor: TargetCorridor }
+    | { type: "addArea"; area: PlanningArea }
     | {
         type: "updateCorridorPriority";
         corridorId: string;
@@ -639,6 +651,16 @@ export type MapPatchProposal = {
         reason: string;
       }
     | {
+        type: "updateAreaPlanningFields";
+        areaId: string;
+        name?: string;
+        purpose?: string;
+        influence?: TargetInfluence;
+        priority?: Priority;
+        notes?: string[];
+        reason: string;
+      }
+    | {
         type: "updateZoneScores";
         zoneId: string;
         fitnessScore?: Score;
@@ -659,6 +681,7 @@ export type MapPatchProposal = {
 
 export type MapState = {
   zones: MapZone[];
+  areas?: PlanningArea[];
   corridors: TargetCorridor[];
   targets: TargetPoint[];
 };

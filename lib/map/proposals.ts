@@ -14,6 +14,7 @@ export type ProposalApplyResult =
 function hasEntityId(state: MapState, id: string) {
   return (
     state.zones.some((zone) => zone.id === id) ||
+    (state.areas ?? []).some((area) => area.id === id) ||
     state.corridors.some((corridor) => corridor.id === id) ||
     state.targets.some((target) => target.id === id)
   );
@@ -58,6 +59,22 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
         nextState = {
           ...nextState,
           corridors: [...nextState.corridors, structuredClone(operation.corridor)],
+        };
+        break;
+      }
+
+      case "addArea": {
+        if (!isPolygonInSfBounds(operation.area.geometry)) {
+          return { ok: false, error: "Area geometry is outside San Francisco." };
+        }
+
+        if (hasEntityId(nextState, operation.area.id)) {
+          return { ok: false, error: "Map entity ID already exists." };
+        }
+
+        nextState = {
+          ...nextState,
+          areas: [...(nextState.areas ?? []), structuredClone(operation.area)],
         };
         break;
       }
@@ -124,6 +141,29 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
         break;
       }
 
+      case "updateAreaPlanningFields": {
+        if (!(nextState.areas ?? []).some((area) => area.id === operation.areaId)) {
+          return { ok: false, error: "Unknown area ID." };
+        }
+
+        nextState = {
+          ...nextState,
+          areas: (nextState.areas ?? []).map((area) =>
+            area.id === operation.areaId
+              ? {
+                  ...area,
+                  name: operation.name ?? area.name,
+                  purpose: operation.purpose ?? area.purpose,
+                  influence: operation.influence ?? area.influence,
+                  priority: operation.priority ?? area.priority,
+                  notes: operation.notes ?? area.notes,
+                }
+              : area,
+          ),
+        };
+        break;
+      }
+
       case "updateZoneScores": {
         if (!nextState.zones.some((zone) => zone.id === operation.zoneId)) {
           return { ok: false, error: "Unknown zone ID." };
@@ -180,6 +220,11 @@ export function applyProposal(state: MapState, proposal: MapPatchProposal): Prop
             zone.id === operation.entityId
               ? { ...zone, notes: [...zone.notes, operation.note] }
               : zone,
+          ),
+          areas: (nextState.areas ?? []).map((area) =>
+            area.id === operation.entityId
+              ? { ...area, notes: [...area.notes, operation.note] }
+              : area,
           ),
           corridors: nextState.corridors.map((corridor) =>
             corridor.id === operation.entityId

@@ -23,6 +23,7 @@ import type {
   MapZone,
   OnboardingOperation,
   OnboardingProgress,
+  PlanningArea,
   PlanningActionExecutionRecord,
   PlanningActionRecord,
   PlanningActionTarget,
@@ -111,6 +112,7 @@ export const MAX_RESEARCHED_TARGET_CANDIDATES = 20;
 export const MAX_RESEARCHED_CORRIDOR_CANDIDATES = 5;
 const MAX_RESEARCHED_CORRIDOR_WAYPOINTS = 25;
 const MAX_MAP_ZONES = 100;
+const MAX_MAP_AREAS = 100;
 const MAX_MAP_CORRIDORS = 100;
 const MAX_MAP_TARGETS = 200;
 
@@ -150,6 +152,16 @@ export const mapZoneSchema: z.ZodType<MapZone> = z.object({
   fitnessScore: scoreSchema,
   affordabilityScore: scoreSchema,
   carFreeScore: scoreSchema,
+  notes: notesSchema,
+});
+
+export const planningAreaSchema: z.ZodType<PlanningArea> = z.object({
+  id: idSchema,
+  name: nameSchema,
+  purpose: requiredTextSchema,
+  geometry: polygonGeometrySchema,
+  priority: prioritySchema,
+  influence: targetInfluenceSchema,
   notes: notesSchema,
 });
 
@@ -513,12 +525,24 @@ const updateTargetPlanningFieldsOperationSchema = z.object({
   reason: requiredTextSchema,
 });
 
+const updateAreaPlanningFieldsOperationSchema = z.object({
+  type: z.literal("updateAreaPlanningFields"),
+  areaId: idSchema,
+  name: nameSchema.optional(),
+  purpose: requiredTextSchema.optional(),
+  influence: targetInfluenceSchema.optional(),
+  priority: prioritySchema.optional(),
+  notes: notesSchema.optional(),
+  reason: requiredTextSchema,
+});
+
 export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
   summary: requiredLongTextSchema,
   operations: z.array(
     z.discriminatedUnion("type", [
       z.object({ type: z.literal("addTarget"), target: targetPointSchema }),
       z.object({ type: z.literal("addCorridor"), corridor: targetCorridorSchema }),
+      z.object({ type: z.literal("addArea"), area: planningAreaSchema }),
       z.object({
         type: z.literal("updateCorridorPriority"),
         corridorId: idSchema,
@@ -532,6 +556,7 @@ export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
         reason: requiredTextSchema,
       }),
       updateTargetPlanningFieldsOperationSchema,
+      updateAreaPlanningFieldsOperationSchema,
       z.object({
         type: z.literal("updateZoneScores"),
         zoneId: idSchema,
@@ -556,24 +581,39 @@ export const mapPatchProposalSchema: z.ZodType<MapPatchProposal> = z.object({
   requiresUserReview: z.literal(true),
 }).superRefine((proposal, context) => {
   proposal.operations.forEach((operation, index) => {
-    if (operation.type !== "updateTargetPlanningFields") {
-      return;
+    if (operation.type === "updateTargetPlanningFields") {
+      const hasTargetField =
+        operation.name !== undefined ||
+        operation.purpose !== undefined ||
+        operation.influence !== undefined ||
+        operation.priority !== undefined ||
+        operation.radiusMinutes !== undefined ||
+        operation.notes !== undefined;
+
+      if (!hasTargetField) {
+        context.addIssue({
+          code: "custom",
+          path: ["operations", index],
+          message: "At least one target planning field must be provided.",
+        });
+      }
     }
 
-    const hasTargetField =
-      operation.name !== undefined ||
-      operation.purpose !== undefined ||
-      operation.influence !== undefined ||
-      operation.priority !== undefined ||
-      operation.radiusMinutes !== undefined ||
-      operation.notes !== undefined;
+    if (operation.type === "updateAreaPlanningFields") {
+      const hasAreaField =
+        operation.name !== undefined ||
+        operation.purpose !== undefined ||
+        operation.influence !== undefined ||
+        operation.priority !== undefined ||
+        operation.notes !== undefined;
 
-    if (!hasTargetField) {
-      context.addIssue({
-        code: "custom",
-        path: ["operations", index],
-        message: "At least one target planning field must be provided.",
-      });
+      if (!hasAreaField) {
+        context.addIssue({
+          code: "custom",
+          path: ["operations", index],
+          message: "At least one area planning field must be provided.",
+        });
+      }
     }
   });
 });
@@ -628,6 +668,7 @@ export const mapAssistantOutcomeSchema: z.ZodType<MapAssistantOutcome> = z
 
 export const mapStateSchema: z.ZodType<MapState> = z.object({
   zones: z.array(mapZoneSchema).max(MAX_MAP_ZONES),
+  areas: z.array(planningAreaSchema).max(MAX_MAP_AREAS).default([]),
   corridors: z.array(targetCorridorSchema).max(MAX_MAP_CORRIDORS),
   targets: z.array(targetPointSchema).max(MAX_MAP_TARGETS),
 });
@@ -641,6 +682,12 @@ export const selectedMapEntitySchema: z.ZodType<SelectedMapEntity> = z
     z
       .object({
         kind: z.literal("zone"),
+        id: idSchema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("area"),
         id: idSchema,
       })
       .strict(),

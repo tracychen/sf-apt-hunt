@@ -19,16 +19,22 @@ import type {
   Coordinate,
   ListingDisplayCandidate,
   MapState,
+  PlanningArea,
   Priority,
   TargetInfluence,
   TargetPoint,
 } from "@/lib/domain/types";
 import {
   applyCorridorGeometryEdit,
+  applyPlanningAreaGeometryEdit,
   applyTargetCoordinateEdit,
   applyZoneGeometryEdit,
   type PersistResult,
 } from "@/components/apartment-map/leaflet-map-state";
+import {
+  createPlanningAreaFromZone,
+  getPlanningAreas,
+} from "@/lib/map/planning-areas";
 import {
   formatTargetLabel,
   targetRadiusMeters,
@@ -51,12 +57,14 @@ type LeafletMapProps = {
 
 export type SelectedMapEntity =
   | { kind: "zone"; id: string }
+  | { kind: "area"; id: string }
   | { kind: "corridor"; id: string }
   | { kind: "target"; id: string }
   | null;
 
 export type VisibleMapLayers = {
   zones: boolean;
+  areas: boolean;
   corridors: boolean;
   targets: boolean;
   listings: boolean;
@@ -147,6 +155,22 @@ function zonePathOptions(selected: boolean, kind: "neighborhood" | "caution"): P
     fillOpacity: 0.28,
     opacity: 0.85,
     weight: 2,
+  };
+}
+
+function areaPathOptions(selected: boolean, area: PlanningArea): PathOptions {
+  const influenceStyle =
+    area.influence === "negative"
+      ? { color: "#dc2626", fillColor: "#fecaca" }
+      : area.influence === "neutral"
+        ? { color: "#64748b", fillColor: "#cbd5e1" }
+        : { color: "#2563eb", fillColor: "#bfdbfe" };
+
+  return {
+    ...influenceStyle,
+    fillOpacity: selected ? 0.42 : 0.3,
+    opacity: 0.95,
+    weight: selected ? 4 : 3,
   };
 }
 
@@ -313,7 +337,7 @@ function ZonePolygon({
   children,
   mapState,
   onMapStateChange,
-  onToggle,
+  onSelect,
   positions,
   selected,
   zoneId,
@@ -323,7 +347,7 @@ function ZonePolygon({
   children: ReactNode;
   mapState: MapState;
   onMapStateChange: (state: MapState) => void;
-  onToggle: () => void;
+  onSelect: () => void;
   positions: LatLngExpression[][];
   selected: boolean;
   zoneId: string;
@@ -340,10 +364,61 @@ function ZonePolygon({
     <Polygon
       ref={setPolygonLayer}
       positions={positions}
-      pathOptions={zonePathOptions(selected, zoneKind)}
-      eventHandlers={{ click: onToggle }}
+      pathOptions={{
+        ...zonePathOptions(selected, zoneKind),
+        className: `neighborhood-outline neighborhood-outline-${zoneId}`,
+      }}
+      eventHandlers={{ click: onSelect }}
     >
       <Tooltip sticky>{zoneName}</Tooltip>
+      {children}
+    </Polygon>
+  );
+}
+
+function PlanningAreaPolygon({
+  area,
+  children,
+  mapState,
+  onMapStateChange,
+  onSelect,
+  positions,
+  selected,
+}: {
+  area: PlanningArea;
+  children: ReactNode;
+  mapState: MapState;
+  onMapStateChange: (state: MapState) => void;
+  onSelect: () => void;
+  positions: LatLngExpression[][];
+  selected: boolean;
+}) {
+  const [polygonLayer, setPolygonLayer] = useState<L.Polygon | null>(null);
+
+  usePersistentEditedLayer(polygonLayer, mapState, onMapStateChange, (layer, currentMapState) =>
+    applyPlanningAreaGeometryEdit(currentMapState, area.id, polygonRingCoordinates(layer)),
+  );
+
+  const pathOptions = areaPathOptions(selected, area);
+
+  return (
+    <Polygon
+      ref={setPolygonLayer}
+      positions={positions}
+      pathOptions={{
+        ...pathOptions,
+        className: [
+          "planning-area",
+          `planning-area-${area.influence}`,
+          `planning-area-${area.id}`,
+          pathOptions.className,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      }}
+      eventHandlers={{ click: onSelect }}
+    >
+      <Tooltip sticky>{area.name}</Tooltip>
       {children}
     </Polygon>
   );
@@ -454,14 +529,12 @@ export function LeafletMap({
   mapState,
   listings,
   selectedEntity,
-  selectedZoneIds,
   visibleLayers,
   onMapStateChange,
   onSelectedEntityChange,
-  onSelectedZoneIdsChange,
 }: LeafletMapProps) {
   const [geomanReady, setGeomanReady] = useState(false);
-  const selectedZoneSet = useMemo(() => new Set(selectedZoneIds), [selectedZoneIds]);
+  const planningAreas = getPlanningAreas(mapState);
   const listingPins = useMemo(
     () =>
       listings.filter(
@@ -490,17 +563,19 @@ export function LeafletMap({
     };
   }, []);
 
-  function toggleZone(zoneId: string) {
-    const nextSelectedZoneIds = selectedZoneSet.has(zoneId)
-      ? selectedZoneIds.filter((id) => id !== zoneId)
-      : [...selectedZoneIds, zoneId];
+  function createAreaFromZoneId(zoneId: string) {
+    const zone = mapState.zones.find((item) => item.id === zoneId);
 
-    onSelectedZoneIdsChange(
-      nextSelectedZoneIds,
-    );
-    onSelectedEntityChange(
-      selectedZoneSet.has(zoneId) ? null : { kind: "zone", id: zoneId },
-    );
+    if (!zone) {
+      return;
+    }
+
+    const area = createPlanningAreaFromZone(zone, getPlanningAreas(mapState));
+    onMapStateChange({
+      ...mapState,
+      areas: [...getPlanningAreas(mapState), area],
+    });
+    onSelectedEntityChange({ kind: "area", id: area.id });
   }
 
   if (!geomanReady) {
@@ -525,36 +600,68 @@ export function LeafletMap({
         <GeomanControls />
 
         {visibleLayers.zones ? mapState.zones.map((zone) => {
-          const selected = selectedZoneSet.has(zone.id);
-          const active = selectedEntity?.kind === "zone" && selectedEntity.id === zone.id;
+          const selected = selectedEntity?.kind === "zone" && selectedEntity.id === zone.id;
           const positions = zone.geometry.coordinates.map((ring) => ring.map(toLatLng));
 
           return (
             <ZonePolygon
               key={zone.id}
               positions={positions as LatLngExpression[][]}
-              selected={selected || active}
+              selected={selected}
               zoneId={zone.id}
               zoneKind={zone.kind}
               zoneName={zone.name}
               mapState={mapState}
               onMapStateChange={onMapStateChange}
-              onToggle={() => toggleZone(zone.id)}
+              onSelect={() => onSelectedEntityChange({ kind: "zone", id: zone.id })}
             >
               <Popup>
                 <div className="space-y-1 text-sm">
                   <p className="font-semibold">{zone.name}</p>
-                  <p>{selected ? "Selected search zone" : "Click to select this zone"}</p>
+                  <p>Reference neighborhood outline</p>
                   {hasZonePlanningScores(zone) ? (
                     <p>
                       Fit {zone.fitnessScore}/5, rent {zone.affordabilityScore}/5, transit {zone.carFreeScore}/5
                     </p>
-                  ) : (
-                    <p>Reference neighborhood outline</p>
-                  )}
+                  ) : null}
+                  <button
+                    className="mt-2 border border-border bg-background px-2 py-1 text-xs font-medium hover:bg-muted"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      createAreaFromZoneId(zone.id);
+                    }}
+                  >
+                    Use as planning area
+                  </button>
                 </div>
               </Popup>
             </ZonePolygon>
+          );
+        }) : null}
+
+        {visibleLayers.areas ? planningAreas.map((area) => {
+          const selected = selectedEntity?.kind === "area" && selectedEntity.id === area.id;
+          const positions = area.geometry.coordinates.map((ring) => ring.map(toLatLng));
+
+          return (
+            <PlanningAreaPolygon
+              key={`${area.id}:${area.influence}`}
+              area={area}
+              mapState={mapState}
+              onMapStateChange={onMapStateChange}
+              onSelect={() => onSelectedEntityChange({ kind: "area", id: area.id })}
+              positions={positions as LatLngExpression[][]}
+              selected={selected}
+            >
+              <Popup>
+                <div className="space-y-1 text-sm">
+                  <p className="font-semibold">{area.name}</p>
+                  <p>{area.priority} priority / {area.influence}</p>
+                  {area.notes[0] ? <p>{area.notes[0]}</p> : null}
+                </div>
+              </Popup>
+            </PlanningAreaPolygon>
           );
         }) : null}
 
@@ -644,9 +751,10 @@ export function LeafletMap({
       </MapContainer>
 
       <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[450] max-w-md border border-border bg-background/95 p-3 text-xs text-foreground shadow-sm backdrop-blur sm:inset-x-auto sm:left-3">
-        <p>Boundaries are approximate apartment-search zones, not official boundaries.</p>
+        <p>Neighborhood outlines are approximate references, not official boundaries.</p>
         <p className="mt-1 text-muted-foreground">
-          {selectedZoneIds.length} selected zones, {listingPins.length} listing{" "}
+          {planningAreas.length} planning {planningAreas.length === 1 ? "area" : "areas"},{" "}
+          {listingPins.length} listing{" "}
           {listingPins.length === 1 ? "pin" : "pins"}.
         </p>
       </div>

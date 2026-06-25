@@ -30,13 +30,51 @@ test("renders editable apartment map shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByText("SF Apartment Hunt")).toBeVisible();
-  await expect(page.getByText("Boundaries are approximate apartment-search zones")).toBeVisible();
+  await expect(page.getByText("Neighborhood outlines are approximate references")).toBeVisible();
   await expect(page.locator(".leaflet-container")).toBeVisible();
   await expect(page.locator(".leaflet-pm-toolbar")).toBeVisible();
   await expect(page.locator(".leaflet-pm-icon-edit")).toBeVisible();
   await expect(page.locator(".target-anchor-marker")).toHaveCount(0);
   await expect(page.locator(".target-anchor-radius")).toHaveCount(0);
   await expect(page.locator(".target-corridor")).toHaveCount(0);
+});
+
+test("styles onboarding highlight popovers with app chrome", async ({ page }) => {
+  await page.goto("/");
+
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: "Add your OpenAI key" })
+    .getByRole("button", { name: "Show me" })
+    .click();
+
+  await expect(page.locator(".driver-popover-title")).toHaveText("Add your OpenAI key");
+
+  const styles = await page.evaluate(() => {
+    const popover = document.querySelector<HTMLElement>(".driver-popover");
+    const title = document.querySelector<HTMLElement>(".driver-popover-title");
+
+    if (!popover || !title) {
+      throw new Error("Driver popover was not rendered.");
+    }
+
+    const appFontFamily = getComputedStyle(document.documentElement).fontFamily;
+    const popoverStyles = getComputedStyle(popover);
+    const titleStyles = getComputedStyle(title);
+
+    return {
+      appFontFamily,
+      borderRadius: popoverStyles.borderRadius,
+      borderWidth: popoverStyles.borderTopWidth,
+      popoverFontFamily: popoverStyles.fontFamily,
+      titleFontFamily: titleStyles.fontFamily,
+    };
+  });
+
+  expect(styles.popoverFontFamily).toBe(styles.appFontFamily);
+  expect(styles.titleFontFamily).toBe(styles.appFontFamily);
+  expect(styles.borderRadius).toBe("0px");
+  expect(styles.borderWidth).toBe("1px");
 });
 
 test("target planning anchors show purpose labels and radius rings", async ({ page }) => {
@@ -49,6 +87,34 @@ test("target planning anchors show purpose labels and radius rings", async ({ pa
   ).toBeVisible();
   await expect(page.locator(".target-anchor-marker-positive").first()).toBeVisible();
   await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible();
+});
+
+test("creates and edits a planning area from a neighborhood outline", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByLabel("Areas")).toBeChecked();
+  await page.locator(".neighborhood-outline-lower-pac-heights").click({ force: true });
+  await page.getByRole("button", { name: "Use as planning area" }).click();
+
+  await expect(page.locator(".planning-area-positive")).toHaveCount(1);
+  await expect(page.getByText("Selected item: Lower Pac Heights area")).toBeVisible();
+  await expect(page.getByLabel("Area purpose")).toHaveValue(
+    "Preferred apartment search area around Lower Pac Heights.",
+  );
+
+  await page.getByLabel("Area purpose").fill("Prefer Fillmore access");
+  await page.getByLabel("Area purpose").blur();
+  await page.getByLabel("Area influence").selectOption("negative");
+  await page.getByLabel("Area priority").selectOption("high");
+  await page.getByLabel("Area notes").fill("Avoid this exact polygon for now.");
+  await page.getByLabel("Area notes").blur();
+
+  await expect(page.getByText("Selected item: Lower Pac Heights area")).toBeVisible();
+  await expect(page.getByLabel("Area influence")).toHaveValue("negative");
+  await expect(page.locator(".planning-area-negative")).toHaveCount(1);
+
+  await page.reload();
+  await expect(page.locator(".planning-area-negative")).toHaveCount(1);
 });
 
 test("edits selected target planning fields from the sidebar", async ({ page }) => {
@@ -69,7 +135,7 @@ test("edits selected target planning fields from the sidebar", async ({ page }) 
   await expect(
     page.locator(".target-anchor-marker[title='favorite dinner block · Valencia & 20th']"),
   ).toBeVisible();
-  await expect(page.getByText("Active shape: favorite dinner block · Valencia & 20th")).toBeVisible();
+  await expect(page.getByText("Selected item: favorite dinner block · Valencia & 20th")).toBeVisible();
   await expect(page.getByLabel("Target influence")).toHaveValue("negative");
   await expect(page.getByLabel("Target radius")).toHaveValue("15");
 });
@@ -81,9 +147,9 @@ test("deselects a selected target without changing map data", async ({ page }) =
   await page.getByTitle("Mission favorite block · Valencia & 20th").click();
   await expect(page.getByLabel("Target purpose")).toHaveValue("Mission favorite block");
 
-  await page.getByRole("button", { name: "Deselect" }).click();
+  await page.getByRole("button", { name: "Deselect item" }).click();
 
-  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByText("Selected item: None")).toBeVisible();
   await expect(page.getByLabel("Target purpose")).toHaveCount(0);
   await expect(
     page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
@@ -93,7 +159,7 @@ test("deselects a selected target without changing map data", async ({ page }) =
   await expect(page.getByLabel("Target purpose")).toHaveValue("Mission favorite block");
   await page.getByRole("heading", { name: "SF Apartment Hunt" }).click();
   await page.keyboard.press("Escape");
-  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByText("Selected item: None")).toBeVisible();
   await expect(page.getByLabel("Target purpose")).toHaveCount(0);
 });
 
@@ -112,7 +178,7 @@ test("edits selected corridor metadata from the sidebar", async ({ page }) => {
   await page.getByLabel("Corridor notes").fill("Prioritize this north-side run.");
   await page.getByLabel("Corridor notes").blur();
 
-  await expect(page.getByText("Active shape: Polk Gulch spine")).toBeVisible();
+  await expect(page.getByText("Selected item: Polk Gulch spine")).toBeVisible();
   await expect(page.getByLabel("Corridor priority")).toHaveValue("high");
   await expect(page.getByLabel("Corridor tag transit")).toBeChecked();
 
@@ -140,8 +206,8 @@ test("target field edits are undoable and resettable", async ({ page }) => {
   await page.getByLabel("Target purpose").fill("favorite dinner block");
   await page.getByLabel("Target purpose").blur();
   await expect(page.getByLabel("Target purpose")).toHaveValue("favorite dinner block");
-  await page.getByRole("button", { name: "Reset selected shape" }).click();
-  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await page.getByRole("button", { name: "Reset selected item" }).click();
+  await expect(page.getByText("Selected item: None")).toBeVisible();
   await expect(
     page.locator(".target-anchor-marker[title='Mission favorite block · Valencia & 20th']"),
   ).toHaveCount(0);
@@ -154,16 +220,16 @@ test("corridor field edits are undoable and resettable", async ({ page }) => {
   await clickPolkCorridor(page);
   await page.getByLabel("Corridor name").fill("Polk Gulch spine");
   await page.getByLabel("Corridor name").blur();
-  await expect(page.getByText("Active shape: Polk Gulch spine")).toBeVisible();
+  await expect(page.getByText("Selected item: Polk Gulch spine")).toBeVisible();
 
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(page.getByText("Active shape: Polk Street")).toBeVisible();
+  await expect(page.getByText("Selected item: Polk Street")).toBeVisible();
 
   await page.getByLabel("Corridor name").fill("Polk Gulch spine");
   await page.getByLabel("Corridor name").blur();
   await expect(page.getByLabel("Corridor name")).toHaveValue("Polk Gulch spine");
-  await page.getByRole("button", { name: "Reset selected shape" }).click();
-  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await page.getByRole("button", { name: "Reset selected item" }).click();
+  await expect(page.getByText("Selected item: None")).toBeVisible();
   await expect(page.getByLabel("Corridor name")).toHaveCount(0);
 });
 
@@ -196,11 +262,11 @@ test("resetting a custom target removes the stale selected target", async ({ pag
   await page.goto("/");
 
   await page.getByTitle("easy grocery run · Custom grocery").click();
-  await expect(page.getByText("Active shape: easy grocery run · Custom grocery")).toBeVisible();
+  await expect(page.getByText("Selected item: easy grocery run · Custom grocery")).toBeVisible();
 
-  await page.getByRole("button", { name: "Reset selected shape" }).click();
+  await page.getByRole("button", { name: "Reset selected item" }).click();
 
-  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByText("Selected item: None")).toBeVisible();
   await expect(page.locator(".target-anchor-marker[title='easy grocery run · Custom grocery']")).toHaveCount(0);
 });
 
@@ -237,11 +303,11 @@ test("resetting a custom corridor removes the stale selected corridor", async ({
   await page.goto("/");
 
   await clickCustomCorridor(page);
-  await expect(page.getByText("Active shape: Custom corridor")).toBeVisible();
+  await expect(page.getByText("Selected item: Custom corridor")).toBeVisible();
 
-  await page.getByRole("button", { name: "Reset selected shape" }).click();
+  await page.getByRole("button", { name: "Reset selected item" }).click();
 
-  await expect(page.getByText("Active shape: None")).toBeVisible();
+  await expect(page.getByText("Selected item: None")).toBeVisible();
   await expect(page.getByLabel("Corridor name")).toHaveCount(0);
 });
 

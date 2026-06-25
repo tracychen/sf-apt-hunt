@@ -104,6 +104,15 @@ export function buildListingSelectedContext(input: {
         carFreeScore: zone.carFreeScore,
         notes: zone.notes,
       })),
+    areas: (input.mapState.areas ?? []).map((area) => ({
+      id: area.id,
+      name: area.name,
+      purpose: area.purpose,
+      geometry: area.geometry,
+      priority: area.priority,
+      influence: area.influence,
+      notes: area.notes,
+    })),
     corridors: input.mapState.corridors.map((corridor) => ({
       id: corridor.id,
       name: corridor.name,
@@ -334,6 +343,21 @@ function buildSelectedEntityContext(mapState: MapState, selectedEntity: Selected
           affordabilityScore: zone.affordabilityScore,
           carFreeScore: zone.carFreeScore,
           notes: zone.notes.slice(0, 5),
+        }
+      : null;
+  }
+
+  if (selectedEntity.kind === "area") {
+    const area = (mapState.areas ?? []).find((item) => item.id === selectedEntity.id);
+    return area
+      ? {
+          kind: "area" as const,
+          id: area.id,
+          name: area.name,
+          purpose: area.purpose,
+          priority: area.priority,
+          influence: area.influence,
+          notes: area.notes.slice(0, 5),
         }
       : null;
   }

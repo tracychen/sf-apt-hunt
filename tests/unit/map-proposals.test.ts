@@ -37,6 +37,63 @@ describe("applyProposal", () => {
     }
   });
 
+  it("applies valid planning area operations", () => {
+    const result = applyProposal(samplePlanningMapState, {
+      summary: "Focus Hayes Valley.",
+      operations: [
+        {
+          type: "addArea",
+          area: {
+            id: "hayes-valley-focus",
+            name: "Hayes Valley focus",
+            purpose: "Preferred apartment search area around Hayes Valley.",
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                [
+                  [-122.43, 37.78],
+                  [-122.42, 37.78],
+                  [-122.42, 37.77],
+                  [-122.43, 37.77],
+                  [-122.43, 37.78],
+                ],
+              ],
+            },
+            priority: "high",
+            influence: "positive",
+            notes: [],
+          },
+        },
+        {
+          type: "updateAreaPlanningFields",
+          areaId: "hayes-valley-focus",
+          purpose: "Prefer this area for transit access.",
+          influence: "positive",
+          priority: "medium",
+          notes: ["Strong transit access."],
+          reason: "User asked to focus here.",
+        },
+        {
+          type: "addNote",
+          entityId: "hayes-valley-focus",
+          note: "Review listings block by block.",
+        },
+      ],
+      confidence: "medium",
+      requiresUserReview: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.areas?.find((area) => area.id === "hayes-valley-focus")).toMatchObject({
+        purpose: "Prefer this area for transit access.",
+        priority: "medium",
+        influence: "positive",
+        notes: ["Strong transit access.", "Review listings block by block."],
+      });
+    }
+  });
+
   it("rejects invalid coordinates", () => {
     const result = applyProposal(samplePlanningMapState, {
       summary: "Bad point.",
@@ -159,7 +216,24 @@ describe("applyProposal", () => {
     expect(tooShortRingResult.ok).toBe(false);
   });
 
-  it("rejects added target IDs that already exist on zones or corridors", () => {
+  it("rejects added target IDs that already exist on zones, areas, or corridors", () => {
+    const stateWithArea = {
+      ...samplePlanningMapState,
+      areas: [
+        {
+          id: "existing-area",
+          name: "Existing area",
+          purpose: "Existing area.",
+          geometry: samplePlanningMapState.zones[0]?.geometry ?? {
+            type: "Polygon",
+            coordinates: [],
+          },
+          priority: "medium" as const,
+          influence: "positive" as const,
+          notes: [],
+        },
+      ],
+    };
     const existingZoneIdResult = applyProposal(samplePlanningMapState, {
       summary: "Add target with existing zone ID.",
       operations: [
@@ -200,9 +274,30 @@ describe("applyProposal", () => {
       confidence: "medium",
       requiresUserReview: true,
     });
+    const existingAreaIdResult = applyProposal(stateWithArea, {
+      summary: "Add target with existing area ID.",
+      operations: [
+        {
+          type: "addTarget",
+          target: {
+            id: "existing-area",
+            name: "Conflicting Target",
+            purpose: "Test planning anchor",
+            coordinates: [-122.433, 37.789],
+            priority: "medium",
+            influence: "positive",
+            radiusMinutes: 10,
+            notes: [],
+          },
+        },
+      ],
+      confidence: "medium",
+      requiresUserReview: true,
+    });
 
     expect(existingZoneIdResult.ok).toBe(false);
     expect(existingCorridorIdResult.ok).toBe(false);
+    expect(existingAreaIdResult.ok).toBe(false);
   });
 
   it("rejects added corridor IDs that already exist on zones or targets", () => {

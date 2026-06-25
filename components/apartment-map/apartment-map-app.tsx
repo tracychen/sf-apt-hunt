@@ -52,6 +52,7 @@ type MapPanelProps = {
 
 export const defaultVisibleLayers: VisibleMapLayers = {
   zones: true,
+  areas: true,
   corridors: true,
   targets: true,
   listings: true,
@@ -279,6 +280,13 @@ export function ApartmentMapApp() {
     }
 
     if (
+      selectedEntity.kind === "area" &&
+      !(nextState.areas ?? []).some((area) => area.id === selectedEntity.id)
+    ) {
+      setSelectedEntity(null);
+    }
+
+    if (
       selectedEntity.kind === "target" &&
       !seedMapState.targets.some((target) => target.id === selectedEntity.id)
     ) {
@@ -461,6 +469,12 @@ export function resetMapEntity(
         zones: seedZone
           ? mapState.zones.map((zone) => (zone.id === selectedEntity.id ? seedZone : zone))
           : mapState.zones.filter((zone) => zone.id !== selectedEntity.id),
+      };
+    }
+    case "area": {
+      return {
+        ...mapState,
+        areas: (mapState.areas ?? []).filter((area) => area.id !== selectedEntity.id),
       };
     }
     case "corridor": {

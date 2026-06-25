@@ -150,6 +150,7 @@ export const samplePlanningMapState: MapState = {
       notes: ["Central north-side access with Van Ness transit."],
     },
   ],
+  areas: [],
   corridors: [
     {
       id: "valencia",
@@ -230,6 +231,7 @@ export const samplePlanningMapState: MapState = {
 
 export const seedMapState: MapState = {
   zones: samplePlanningMapState.zones.map(toReferenceZone),
+  areas: [],
   corridors: [],
   targets: [],
 };

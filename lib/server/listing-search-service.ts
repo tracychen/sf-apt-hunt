@@ -36,6 +36,30 @@ export const listingSearchSelectedContextSchema = z
       )
       .max(100)
       .optional(),
+    areas: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(128),
+            name: z.string().min(1).max(160),
+            purpose: z.string().min(1).max(2_000),
+            geometry: z
+              .object({
+                type: z.literal("Polygon"),
+                coordinates: z
+                  .array(z.array(coordinateRequestSchema).min(4).max(200))
+                  .min(1)
+                  .max(8),
+              })
+              .strict(),
+            priority: priorityRequestSchema,
+            influence: z.enum(["positive", "negative", "neutral"]),
+            notes: z.array(noteRequestSchema).max(50),
+          })
+          .strict(),
+      )
+      .max(100)
+      .optional(),
     corridors: z
       .array(
         z
@@ -212,7 +236,7 @@ export async function runListingSearch(rawInput: RunListingSearchInput): Promise
           content: JSON.stringify({
             query: input.query,
             filters: input.filters ?? {},
-            selectedContext: input.selectedContext ?? { zones: [], corridors: [], targets: [] },
+            selectedContext: input.selectedContext ?? { zones: [], areas: [], corridors: [], targets: [] },
             appContext: input.appContext ?? {},
           }),
         },

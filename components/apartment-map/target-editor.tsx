@@ -15,6 +15,11 @@ export type AnchorSemanticEdit =
       kind: "corridor";
       corridorId: string;
       field: "name" | "priority" | "tags" | "notes";
+    }
+  | {
+      kind: "area";
+      areaId: string;
+      field: "name" | "purpose" | "influence" | "priority" | "notes";
     };
 
 type TargetEditorProps = {

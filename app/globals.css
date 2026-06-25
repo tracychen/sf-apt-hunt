@@ -167,3 +167,100 @@
   outline: 3px solid #f97316;
   outline-offset: 2px;
 }
+
+.driver-popover.sf-onboarding-popover,
+.driver-popover.sf-onboarding-popover * {
+  font-family: var(--font-mono);
+}
+
+.driver-popover.sf-onboarding-popover {
+  box-sizing: border-box;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 18%);
+  min-width: min(280px, calc(100vw - 2rem));
+  max-width: min(360px, calc(100vw - 2rem));
+  padding: 1rem;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-title {
+  color: var(--popover-foreground);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-description {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-title[style*="block"] + .driver-popover-description {
+  margin-top: 0.5rem;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-close-btn {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-close-btn:hover,
+.driver-popover.sf-onboarding-popover .driver-popover-close-btn:focus {
+  color: var(--popover-foreground);
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-footer {
+  margin-top: 1rem;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-footer button {
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  padding: 0.25rem 0.625rem;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-footer button:hover,
+.driver-popover.sf-onboarding-popover .driver-popover-footer button:focus {
+  background: var(--muted);
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-arrow {
+  border-color: var(--popover);
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-arrow-side-left {
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-arrow-side-right {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-arrow-side-top {
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+}
+
+.driver-popover.sf-onboarding-popover .driver-popover-arrow-side-bottom {
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-left-color: transparent;
+}

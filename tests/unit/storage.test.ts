@@ -210,7 +210,10 @@ describe("map storage", () => {
     saveMapState(validMapState, localStorage);
 
     expect(localStorage.getItem(mapStateStorageKey)).toBe(JSON.stringify(validMapState));
-    expect(loadMapState(localStorage)).toEqual(validMapState);
+    expect(loadMapState(localStorage)).toEqual({
+      ...validMapState,
+      areas: [],
+    });
   });
 
   it("clears map state", () => {

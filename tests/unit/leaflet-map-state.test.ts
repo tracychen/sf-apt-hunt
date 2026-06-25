@@ -3,10 +3,13 @@ import { samplePlanningMapState } from "@/lib/map/seed-data";
 import {
   applyCorridorGeometryEdit,
   applyCorridorMetadataEdit,
+  applyPlanningAreaGeometryEdit,
+  applyPlanningAreaMetadataEdit,
   applyTargetCoordinateEdit,
   applyTargetPlanningFieldEdit,
   applyZoneGeometryEdit,
 } from "@/components/apartment-map/leaflet-map-state";
+import { createPlanningAreaFromZone } from "@/lib/map/planning-areas";
 
 describe("leaflet map state edits", () => {
   it("updates a zone polygon and closes the edited ring", () => {
@@ -106,6 +109,71 @@ describe("leaflet map state edits", () => {
       tags: ["fitness", "transit", "safety"],
       notes: ["Prioritize north-side services."],
     });
+  });
+
+  it("updates planning area metadata fields", () => {
+    const zone = samplePlanningMapState.zones.find((item) => item.id === "lower-pac-heights");
+    expect(zone).toBeDefined();
+
+    if (!zone) {
+      return;
+    }
+
+    const area = createPlanningAreaFromZone(zone, []);
+    const nextState = applyPlanningAreaMetadataEdit(
+      {
+        ...samplePlanningMapState,
+        areas: [area],
+      },
+      area.id,
+      {
+        name: "Lower Pac Heights search focus",
+        purpose: "Prioritize listings with Fillmore access.",
+        priority: "high",
+        influence: "positive",
+        notes: ["Good transit and gym access."],
+      },
+    );
+
+    expect(nextState?.areas?.[0]).toMatchObject({
+      name: "Lower Pac Heights search focus",
+      purpose: "Prioritize listings with Fillmore access.",
+      priority: "high",
+      influence: "positive",
+      notes: ["Good transit and gym access."],
+    });
+  });
+
+  it("updates a planning area polygon and closes the edited ring", () => {
+    const zone = samplePlanningMapState.zones.find((item) => item.id === "lower-pac-heights");
+    expect(zone).toBeDefined();
+
+    if (!zone) {
+      return;
+    }
+
+    const area = createPlanningAreaFromZone(zone, []);
+    const nextState = applyPlanningAreaGeometryEdit(
+      {
+        ...samplePlanningMapState,
+        areas: [area],
+      },
+      area.id,
+      [
+        [-122.445, 37.795],
+        [-122.42, 37.795],
+        [-122.42, 37.78],
+        [-122.445, 37.78],
+      ],
+    );
+
+    expect(nextState?.areas?.[0]?.geometry.coordinates[0]).toEqual([
+      [-122.445, 37.795],
+      [-122.42, 37.795],
+      [-122.42, 37.78],
+      [-122.445, 37.78],
+      [-122.445, 37.795],
+    ]);
   });
 
   it("returns null for unknown corridor metadata edits", () => {

@@ -67,6 +67,48 @@ const mapState: MapState = {
       notes: ["Weak planning fit."],
     },
   ],
+  areas: [
+    {
+      id: "lower-pac-heights-area",
+      name: "Lower Pac Heights focus area",
+      purpose: "Preferred Fillmore-side search area",
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          [
+            [-122.44, 37.79],
+            [-122.42, 37.79],
+            [-122.42, 37.78],
+            [-122.44, 37.78],
+            [-122.44, 37.79],
+          ],
+        ],
+      },
+      priority: "high",
+      influence: "positive",
+      notes: ["Strong planning fit."],
+    },
+    {
+      id: "noise-pocket-area",
+      name: "Noise Pocket avoid area",
+      purpose: "Avoid noise pocket",
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          [
+            [-122.422, 37.759],
+            [-122.42, 37.759],
+            [-122.42, 37.757],
+            [-122.422, 37.757],
+            [-122.422, 37.759],
+          ],
+        ],
+      },
+      priority: "high",
+      influence: "negative",
+      notes: ["Weak planning fit."],
+    },
+  ],
   corridors: [
     {
       id: "fillmore",
@@ -203,7 +245,7 @@ describe("listing planning score", () => {
     expect(scored.planningSignals).toEqual([
       "Near favorite block",
       "Within budget",
-      "Matches bed filter",
+      "Inside preferred area",
     ]);
   });
 
@@ -226,7 +268,7 @@ describe("listing planning score", () => {
     expect(scored.planningSignals).toEqual([
       "Over budget",
       "Near avoided noise pocket",
-      "Matches bed filter",
+      "Inside avoided area",
     ]);
   });
 
@@ -246,6 +288,7 @@ describe("listing planning score", () => {
       },
       mapState: {
         ...mapState,
+        areas: [],
         corridors: [],
         targets: [],
       },
@@ -275,8 +318,34 @@ describe("listing planning score", () => {
     expect(scored.planningScore).toBe(3);
     expect(scored.planningSignals).toEqual([
       "Location not pinned yet",
-      "Matches selected zone",
+      "Matches preferred area",
       "Bed count unclear",
+    ]);
+  });
+
+  it("does not match planning areas when an ungeocoded listing has no location text", () => {
+    const scored = scoreListingLead({
+      lead: createLead({
+        candidate: createCandidate({
+          coordinates: null,
+          geocodeStatus: "not_attempted",
+          markerPrecision: "none",
+          neighborhoodGuess: "",
+          locationText: "",
+          priceMonthly: null,
+          beds: "unknown",
+        }),
+      }),
+      filters,
+      mapState,
+      selectedZoneIds: [],
+    });
+
+    expect(scored.planningScore).toBe(2);
+    expect(scored.planningSignals).toEqual([
+      "Location not pinned yet",
+      "Bed count unclear",
+      "Price needs verification",
     ]);
   });
 

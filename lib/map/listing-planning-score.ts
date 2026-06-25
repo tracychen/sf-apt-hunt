@@ -9,6 +9,7 @@ import type {
   Priority,
   Score,
 } from "@/lib/domain/types";
+import { getPlanningAreas, isPointInPolygon } from "@/lib/map/planning-areas";
 import { targetRadiusMeters } from "@/lib/map/target-points";
 
 const EARTH_RADIUS_METERS = 6_371_000;
@@ -24,10 +25,11 @@ const priorityWeights: Record<Priority, number> = {
 const signalKindOrder = [
   "budget",
   "beds",
+  "negative-area",
   "negative-target",
   "positive-target",
+  "positive-area",
   "corridor",
-  "selected-zone",
   "location",
 ] as const;
 
@@ -48,16 +50,16 @@ export function scoreListingLead({
   lead,
   filters,
   mapState,
-  selectedZoneIds,
 }: ScoreListingLeadOptions): ListingDisplayCandidate {
   const candidate = lead.candidate;
   const signals = [
     readBudgetSignal(candidate.priceMonthly, filters.maxBudget),
     readBedSignal(candidate.beds, filters.beds),
+    readAreaSignal(candidate, mapState, "negative-area"),
     readTargetSignal(candidate.coordinates, mapState, "negative-target"),
     readTargetSignal(candidate.coordinates, mapState, "positive-target"),
+    readAreaSignal(candidate, mapState, "positive-area"),
     readCorridorSignal(candidate.coordinates, mapState),
-    readSelectedZoneSignal(candidate.neighborhoodGuess, mapState, selectedZoneIds),
     readLocationSignal(candidate.coordinates, candidate.markerPrecision),
   ].filter((signal): signal is WeightedSignal => signal !== null);
 
@@ -230,37 +232,59 @@ function readCorridorSignal(
   return strongestSignal(matches);
 }
 
-function readSelectedZoneSignal(
-  neighborhoodGuess: string,
+function readAreaSignal(
+  candidate: ListingLead["candidate"],
   mapState: MapState,
-  selectedZoneIds: string[],
+  kind: "negative-area" | "positive-area",
 ): WeightedSignal | null {
-  const selectedZoneIdSet = new Set(selectedZoneIds);
-  const normalizedGuess = normalizeText(neighborhoodGuess);
+  const influence = kind === "positive-area" ? "positive" : "negative";
+  const candidateNeighborhoodText = normalizeText(candidate.neighborhoodGuess);
+  const candidateLocationText = normalizeText(
+    `${candidate.neighborhoodGuess} ${candidate.locationText ?? ""}`,
+  );
+  const matches = getPlanningAreas(mapState)
+    .filter((area) => area.influence === influence)
+    .map((area): WeightedSignal | null => {
+      const pointMatch = candidate.coordinates
+        ? isPointInPolygon(candidate.coordinates, area.geometry)
+        : false;
+      const normalizedAreaName = normalizeText(area.name);
+      const normalizedAreaPurpose = normalizeText(area.purpose);
+      const nameMatch = textIncludesMeaningfulMatch(candidateLocationText, normalizedAreaName);
+      const reverseNameMatch =
+        textIncludesMeaningfulMatch(normalizedAreaName, candidateNeighborhoodText) ||
+        textIncludesMeaningfulMatch(normalizedAreaName, candidateLocationText);
+      const purposeMatch =
+        textIncludesMeaningfulMatch(candidateLocationText, normalizedAreaPurpose) ||
+        textIncludesMeaningfulMatch(normalizedAreaPurpose, candidateNeighborhoodText) ||
+        textIncludesMeaningfulMatch(normalizedAreaPurpose, candidateLocationText);
+      const textMatch =
+        !candidate.coordinates && (nameMatch || reverseNameMatch || purposeMatch);
 
-  for (const zone of mapState.zones) {
-    const normalizedZoneName = normalizeText(zone.name);
+      if (!pointMatch && !textMatch) {
+        return null;
+      }
 
-    if (
-      !selectedZoneIdSet.has(zone.id) ||
-      normalizedZoneName.length === 0 ||
-      !normalizedGuess.includes(normalizedZoneName)
-    ) {
-      continue;
-    }
+      const direction = influence === "positive" ? 1 : -1;
+      const label =
+        influence === "positive"
+          ? pointMatch
+            ? "Inside preferred area"
+            : "Matches preferred area"
+          : pointMatch
+            ? "Inside avoided area"
+            : "Matches avoided area";
+      const baseDelta = pointMatch ? 0.5 : 0.3;
 
-    const averageScore = (zone.fitnessScore + zone.affordabilityScore + zone.carFreeScore) / 3;
+      return {
+        kind,
+        label,
+        delta: direction * baseDelta * priorityWeights[area.priority],
+      };
+    })
+    .filter((signal): signal is WeightedSignal => signal !== null);
 
-    if (averageScore >= 4) {
-      return { kind: "selected-zone", label: "Matches selected zone", delta: 0.3 };
-    }
-
-    if (averageScore <= 2) {
-      return { kind: "selected-zone", label: "Weak selected-zone fit", delta: -0.3 };
-    }
-  }
-
-  return null;
+  return strongestSignal(matches);
 }
 
 function readLocationSignal(
@@ -276,6 +300,10 @@ function readLocationSignal(
   }
 
   return null;
+}
+
+function textIncludesMeaningfulMatch(container: string, query: string) {
+  return container.length > 0 && query.length > 0 && container.includes(query);
 }
 
 function pointToSegmentDistanceMeters(point: Coordinate, start: Coordinate, end: Coordinate) {

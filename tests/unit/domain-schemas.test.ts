@@ -6,6 +6,7 @@ import {
   mapPatchProposalSchema,
   mapStateSchema,
   mapZoneSchema,
+  planningAreaSchema,
   researchedTargetCandidateSchema,
   targetCorridorSchema,
   targetPointSchema,
@@ -40,6 +41,35 @@ describe("domain schemas", () => {
         notes: ["Strong car-free access."],
       }),
     ).not.toThrow();
+  });
+
+  it("validates an explicit planning area", () => {
+    expect(() =>
+      planningAreaSchema.parse({
+        id: "hayes-valley-preferred",
+        name: "Hayes Valley preferred area",
+        purpose: "Preferred apartment search area near transit and restaurants.",
+        geometry: polygon,
+        priority: "high",
+        influence: "positive",
+        notes: ["Use for scoring after the user chooses this area."],
+      }),
+    ).not.toThrow();
+  });
+
+  it("defaults missing planning areas to an empty collection", () => {
+    expect(
+      mapStateSchema.parse({
+        zones: [],
+        corridors: [],
+        targets: [],
+      }),
+    ).toEqual({
+      zones: [],
+      corridors: [],
+      targets: [],
+      areas: [],
+    });
   });
 
   it("rejects an invalid priority", () => {

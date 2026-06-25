@@ -1257,6 +1257,16 @@ function buildVisibleContext(input: {
         .filter((target) => target.influence === "negative")
         .map((target) => target.purpose || target.name)
     : [];
+  const positiveAreas = input.visibleLayers.areas
+    ? (input.mapState.areas ?? [])
+        .filter((area) => area.influence === "positive")
+        .map((area) => area.purpose || area.name)
+    : [];
+  const avoidAreas = input.visibleLayers.areas
+    ? (input.mapState.areas ?? [])
+        .filter((area) => area.influence === "negative")
+        .map((area) => area.purpose || area.name)
+    : [];
 
   const summary: PlanningContextSummary = {
     budget: null,
@@ -1264,8 +1274,8 @@ function buildVisibleContext(input: {
     timing: null,
     furnished: null,
     shortTerm: null,
-    positiveAnchors,
-    avoidAnchors,
+    positiveAnchors: [...positiveAnchors, ...positiveAreas],
+    avoidAnchors: [...avoidAnchors, ...avoidAreas],
     selectedZones,
     sourceStrictness: null,
   };
@@ -1343,6 +1353,10 @@ function formatProposalOperationLabel(operation: MapPatchProposal["operations"][
     return `Add ${operation.corridor.name}`;
   }
 
+  if (operation.type === "addArea") {
+    return `Add ${operation.area.name}`;
+  }
+
   if (operation.type === "addNote") {
     return `Add note to ${formatEntityLabel(operation.entityId)}`;
   }
@@ -1357,6 +1371,10 @@ function formatProposalOperationLabel(operation: MapPatchProposal["operations"][
 
   if (operation.type === "updateTargetPlanningFields") {
     return `Update ${formatEntityLabel(operation.targetId)}`;
+  }
+
+  if (operation.type === "updateAreaPlanningFields") {
+    return `Update ${formatEntityLabel(operation.areaId)}`;
   }
 
   if (operation.type === "updateZoneScores") {

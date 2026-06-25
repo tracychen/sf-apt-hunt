@@ -52,6 +52,7 @@ import type { PlanningChatOnboardingMilestone } from "@/components/apartment-map
 const loadingState: MapHistoryState = {
   current: {
     zones: [],
+    areas: [],
     corridors: [],
     targets: [],
   },
@@ -413,6 +414,13 @@ export function PersistentApartmentMapApp({
     if (
       selectedEntity.kind === "corridor" &&
       !nextState.corridors.some((corridor) => corridor.id === selectedEntity.id)
+    ) {
+      setSelectedEntity(null);
+    }
+
+    if (
+      selectedEntity.kind === "area" &&
+      !(nextState.areas ?? []).some((area) => area.id === selectedEntity.id)
     ) {
       setSelectedEntity(null);
     }

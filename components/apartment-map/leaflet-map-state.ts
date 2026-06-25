@@ -1,4 +1,5 @@
-import type { Coordinate, MapState, TargetCorridor } from "@/lib/domain/types";
+import type { Coordinate, MapState, PlanningArea, TargetCorridor } from "@/lib/domain/types";
+import { getPlanningAreas } from "@/lib/map/planning-areas";
 import { seedMapState } from "@/lib/map/seed-data";
 import { isCoordinateInSfBounds } from "@/lib/map/sf-bounds";
 import {
@@ -88,8 +89,40 @@ export function applyCorridorGeometryEdit(
   };
 }
 
+export function applyPlanningAreaGeometryEdit(
+  mapState: MapState,
+  areaId: string,
+  coordinates: Coordinate[],
+): PersistResult {
+  const nextCoordinates = closeRing(coordinates);
+  const area = getPlanningAreas(mapState).find((item) => item.id === areaId);
+
+  if (!area || coordinatesEqual(area.geometry.coordinates[0] ?? [], nextCoordinates)) {
+    return null;
+  }
+
+  return {
+    ...mapState,
+    areas: getPlanningAreas(mapState).map((item) =>
+      item.id === areaId
+        ? {
+            ...item,
+            geometry: {
+              ...item.geometry,
+              coordinates: [nextCoordinates],
+            },
+          }
+        : item,
+    ),
+  };
+}
+
 export type CorridorMetadataPatch = Partial<
   Pick<TargetCorridor, "name" | "priority" | "tags" | "notes">
+>;
+
+export type PlanningAreaMetadataPatch = Partial<
+  Pick<PlanningArea, "name" | "purpose" | "influence" | "priority" | "notes">
 >;
 
 export function applyCorridorMetadataEdit(
@@ -120,6 +153,35 @@ export function applyCorridorMetadataEdit(
     corridors: mapState.corridors.map((item) =>
       item.id === corridorId ? nextCorridor : item,
     ),
+  };
+}
+
+export function applyPlanningAreaMetadataEdit(
+  mapState: MapState,
+  areaId: string,
+  patch: PlanningAreaMetadataPatch,
+): PersistResult {
+  const area = getPlanningAreas(mapState).find((item) => item.id === areaId);
+
+  if (!area) {
+    return null;
+  }
+
+  const nextArea = { ...area };
+
+  for (const [field, value] of Object.entries(patch)) {
+    if (value !== undefined) {
+      Object.assign(nextArea, { [field]: value });
+    }
+  }
+
+  if (planningAreasEqual(area, nextArea)) {
+    return null;
+  }
+
+  return {
+    ...mapState,
+    areas: getPlanningAreas(mapState).map((item) => (item.id === areaId ? nextArea : item)),
   };
 }
 
@@ -175,6 +237,17 @@ function corridorsEqual(left: TargetCorridor, right: TargetCorridor) {
     left.priority === right.priority &&
     left.tags.length === right.tags.length &&
     left.tags.every((tag, index) => tag === right.tags[index]) &&
+    left.notes.length === right.notes.length &&
+    left.notes.every((note, index) => note === right.notes[index])
+  );
+}
+
+function planningAreasEqual(left: PlanningArea, right: PlanningArea) {
+  return (
+    left.name === right.name &&
+    left.purpose === right.purpose &&
+    left.influence === right.influence &&
+    left.priority === right.priority &&
     left.notes.length === right.notes.length &&
     left.notes.every((note, index) => note === right.notes[index])
   );

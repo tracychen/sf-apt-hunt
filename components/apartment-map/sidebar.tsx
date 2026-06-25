@@ -16,6 +16,7 @@ import type {
   VisibleMapLayers,
 } from "@/components/apartment-map/leaflet-map";
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
+import { AreaEditor } from "@/components/apartment-map/area-editor";
 import { CorridorEditor } from "@/components/apartment-map/corridor-editor";
 import { OnboardingPanel } from "@/components/apartment-map/onboarding-panel";
 import {
@@ -128,6 +129,10 @@ export function Sidebar({
     selectedEntity?.kind === "target"
       ? mapState.targets.find((target) => target.id === selectedEntity.id) ?? null
       : null;
+  const selectedArea =
+    selectedEntity?.kind === "area"
+      ? (mapState.areas ?? []).find((area) => area.id === selectedEntity.id) ?? null
+      : null;
 
   function toggleLayer(layer: keyof VisibleMapLayers) {
     onVisibleLayersChange({
@@ -227,11 +232,11 @@ export function Sidebar({
         </p>
         <h1 className="mt-1 text-xl font-semibold">SF Apartment Hunt</h1>
         <p className="mt-2 text-xs text-muted-foreground">
-          {mapState.zones.length} zones, {selectedZoneIds.length} selected,{" "}
+          {mapState.zones.length} neighborhoods, {(mapState.areas ?? []).length} areas,{" "}
           {listings.length} listings staged.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Active shape: {describeSelectedEntity(selectedEntity, mapState)}
+          Selected item: {describeSelectedEntity(selectedEntity, mapState)}
         </p>
       </div>
 
@@ -251,10 +256,10 @@ export function Sidebar({
           Undo
         </Button>
         <Button disabled={!selectedEntity} variant="outline" onClick={onDeselectSelectedEntity}>
-          Deselect
+          Deselect item
         </Button>
         <Button disabled={!canResetSelectedShapes} variant="outline" onClick={onResetSelectedShapes}>
-          Reset selected shape
+          Reset selected item
         </Button>
         <Button disabled={isResetting} variant="outline" onClick={() => void handleReset()}>
           {isWorkspaceMode ? "Reset workspace map" : "Reset local map"}
@@ -296,7 +301,7 @@ export function Sidebar({
         >
           <h2 className="font-medium">Map layers</h2>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-            {(["zones", "corridors", "targets", "listings"] as const).map((layer) => (
+            {(["zones", "areas", "corridors", "targets", "listings"] as const).map((layer) => (
               <label key={layer} className="flex items-center gap-2">
                 <input
                   className="size-3.5"
@@ -304,8 +309,7 @@ export function Sidebar({
                   checked={visibleLayers[layer]}
                   onChange={() => toggleLayer(layer)}
                 />
-                {layer[0].toUpperCase()}
-                {layer.slice(1)}
+                {formatLayerLabel(layer)}
               </label>
             ))}
           </div>
@@ -329,6 +333,15 @@ export function Sidebar({
           <TargetEditor
             mapState={mapState}
             target={selectedTarget}
+            onMapStateChange={onMapStateChange}
+            onSemanticEdit={onAnchorSemanticEdit}
+          />
+        ) : null}
+
+        {selectedArea ? (
+          <AreaEditor
+            area={selectedArea}
+            mapState={mapState}
             onMapStateChange={onMapStateChange}
             onSemanticEdit={onAnchorSemanticEdit}
           />
@@ -374,6 +387,10 @@ function describeSelectedEntity(selectedEntity: SelectedMapEntity, mapState: Map
     return mapState.zones.find((zone) => zone.id === selectedEntity.id)?.name ?? selectedEntity.id;
   }
 
+  if (selectedEntity.kind === "area") {
+    return (mapState.areas ?? []).find((area) => area.id === selectedEntity.id)?.name ?? selectedEntity.id;
+  }
+
   if (selectedEntity.kind === "corridor") {
     return (
       mapState.corridors.find((corridor) => corridor.id === selectedEntity.id)?.name ??
@@ -383,4 +400,12 @@ function describeSelectedEntity(selectedEntity: SelectedMapEntity, mapState: Map
 
   const target = mapState.targets.find((item) => item.id === selectedEntity.id);
   return target ? formatTargetLabel(target) : selectedEntity.id;
+}
+
+function formatLayerLabel(layer: keyof VisibleMapLayers) {
+  if (layer === "zones") {
+    return "Neighborhoods";
+  }
+
+  return `${layer[0].toUpperCase()}${layer.slice(1)}`;
 }

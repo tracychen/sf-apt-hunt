@@ -37,6 +37,7 @@ export function useOnboardingHighlights() {
     const driverObj = driver({
       allowClose: true,
       animate: true,
+      popoverClass: "sf-onboarding-popover",
       showButtons: ["close"],
       onDestroyStarted: () => {
         driverObj.destroy();

@@ -654,6 +654,7 @@ async function chargeResearchGeocodeQuota(context: ResearchGeocodeContext) {
 function collectMapEntityIds(mapState: MapState) {
   return new Set([
     ...mapState.zones.map((zone) => zone.id),
+    ...(mapState.areas ?? []).map((area) => area.id),
     ...mapState.corridors.map((corridor) => corridor.id),
     ...mapState.targets.map((target) => target.id),
   ]);
@@ -750,6 +751,10 @@ function normalizeMapPatchOperation(operation: unknown) {
       "radiusMinutes",
       "notes",
     ]);
+  }
+
+  if (operation.type === "updateAreaPlanningFields") {
+    return omitNullFields(operation, ["name", "purpose", "influence", "priority", "notes"]);
   }
 
   return operation;
@@ -889,6 +894,20 @@ const targetCorridorJsonSchema = {
       maxItems: 5,
       items: { enum: ["fitness", "rent", "transit", "safety", "short-term"] },
     },
+    notes: textArrayJsonSchema,
+  },
+};
+const planningAreaJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "name", "purpose", "geometry", "priority", "influence", "notes"],
+  properties: {
+    id: { type: "string", minLength: 1, maxLength: 128 },
+    name: { type: "string", minLength: 1, maxLength: 160 },
+    purpose: { type: "string", minLength: 1, maxLength: 2000 },
+    geometry: polygonJsonSchema,
+    priority: priorityJsonSchema,
+    influence: targetInfluenceJsonSchema,
     notes: textArrayJsonSchema,
   },
 };
@@ -1049,6 +1068,15 @@ const mapPatchOperationJsonSchema = {
     {
       type: "object",
       additionalProperties: false,
+      required: ["type", "area"],
+      properties: {
+        type: { enum: ["addArea"] },
+        area: planningAreaJsonSchema,
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
       required: ["type", "corridorId", "priority", "reason"],
       properties: {
         type: { enum: ["updateCorridorPriority"] },
@@ -1090,6 +1118,30 @@ const mapPatchOperationJsonSchema = {
         influence: nullableTargetInfluenceJsonSchema,
         priority: nullablePriorityJsonSchema,
         radiusMinutes: nullableTargetRadiusMinutesJsonSchema,
+        notes: nullableTextArrayJsonSchema,
+        reason: { type: "string", minLength: 1, maxLength: 2000 },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "type",
+        "areaId",
+        "name",
+        "purpose",
+        "influence",
+        "priority",
+        "notes",
+        "reason",
+      ],
+      properties: {
+        type: { enum: ["updateAreaPlanningFields"] },
+        areaId: { type: "string", minLength: 1, maxLength: 128 },
+        name: nullableNameJsonSchema,
+        purpose: nullableTextJsonSchema,
+        influence: nullableTargetInfluenceJsonSchema,
+        priority: nullablePriorityJsonSchema,
         notes: nullableTextArrayJsonSchema,
         reason: { type: "string", minLength: 1, maxLength: 2000 },
       },
