@@ -41,6 +41,14 @@ const planningChatPlaceholder = [
   "Make this selected pin a negative anchor for noise",
 ].join("\n");
 
+export type PlanningChatOnboardingMilestone =
+  | {
+      kind: "anchorProposalReceived";
+      messageId: string;
+      proposalType: "mapProposal" | "targetEditProposal";
+    }
+  | { kind: "listingResultsReceived"; messageId: string; resultSetId: string };
+
 export function PlanningChatPanel({
   apiKey,
   mapState,
@@ -51,6 +59,7 @@ export function PlanningChatPanel({
   resetToken,
   onPlanningMapStateChange,
   onPlanningListingLeadChange,
+  onOnboardingMilestone,
 }: {
   apiKey: string | null;
   mapState: MapState;
@@ -77,6 +86,7 @@ export function PlanningChatPanel({
     geocodeAuthorization: GeocodeAuthorization | null;
     listingLedgerRevision?: string | null;
   }) => void;
+  onOnboardingMilestone?: (milestone: PlanningChatOnboardingMilestone) => void;
 }) {
   const installationRef = useRef(
     ownershipMode.kind === "local"
@@ -303,6 +313,24 @@ export function PlanningChatPanel({
         persistThreadCacheForCurrentMode(nextCache);
         return nextCache;
       });
+
+      for (const part of parsed.assistantMessage.parts) {
+        if (part.type === "mapProposal" || part.type === "targetEditProposal") {
+          onOnboardingMilestone?.({
+            kind: "anchorProposalReceived",
+            messageId: parsed.assistantMessage.id,
+            proposalType: part.type,
+          });
+        }
+
+        if (part.type === "listingResults") {
+          onOnboardingMilestone?.({
+            kind: "listingResultsReceived",
+            messageId: parsed.assistantMessage.id,
+            resultSetId: part.resultSetId,
+          });
+        }
+      }
 
       setMessage("");
       setStatus(buildSuccessStatus(parsed.assistantMessage.parts));
@@ -632,6 +660,7 @@ export function PlanningChatPanel({
         </label>
         <textarea
           id="planning-chat-message"
+          data-onboarding-target="planning-chat-input"
           className="mt-2 min-h-28 w-full resize-y border border-input bg-background p-2 text-sm outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/50 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           disabled={disabled || isSubmitting || hasBusyActions}
           value={message}
@@ -783,6 +812,7 @@ function PlanningChatPartView({
             <article
               key={`${part.resultSetId}-${listing.lead.canonicalUrl}`}
               className="border border-sidebar-border bg-background p-3"
+              data-onboarding-target="listing-card"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <a
@@ -946,7 +976,10 @@ function ProposalCard({
   }
 
   return (
-    <div className="border border-sidebar-border bg-background p-3">
+    <div
+      className="border border-sidebar-border bg-background p-3"
+      data-onboarding-target="proposal-card"
+    >
       <div className="flex items-center justify-between gap-3">
         <p className="font-medium">{part.proposal.summary}</p>
         <ActionStatusBadge action={action} />

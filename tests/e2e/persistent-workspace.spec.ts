@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import type { OnboardingProgress } from "../../lib/domain/types";
 import { samplePlanningMapState, seedMapState } from "../../lib/map/seed-data";
 
 const transparentPng = Buffer.from(
@@ -41,6 +42,7 @@ test("signed-in workspace map import persists after reload", async ({ page, base
           userId: "user-1",
           name: "Apartment hunt",
           listingLedgerRevision: "ledger-1",
+          onboardingProgress: createOnboardingProgress(),
           createdAt: "2026-06-23T12:00:00.000Z",
           updatedAt: "2026-06-23T12:00:00.000Z",
         },
@@ -108,6 +110,102 @@ test("signed-in workspace map import persists after reload", async ({ page, base
   expect(clientStateRequestCount).toBeGreaterThanOrEqual(2);
 });
 
+test("signed-in workspace onboarding progress persists after reload", async ({
+  page,
+  baseURL,
+}) => {
+  let onboardingProgress = createOnboardingProgress();
+  const onboardingRequests: unknown[] = [];
+
+  await page.context().addCookies([
+    {
+      name: "sf-apt-e2e-auth",
+      value: "playwright",
+      url: baseURL ?? "http://127.0.0.1:3333",
+    },
+  ]);
+
+  await page.route("**/api/workspace/client-state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        workspace: {
+          id: "workspace-1",
+          userId: "user-1",
+          name: "Apartment hunt",
+          listingLedgerRevision: "ledger-1",
+          onboardingProgress,
+          createdAt: "2026-06-23T12:00:00.000Z",
+          updatedAt: "2026-06-23T12:00:00.000Z",
+        },
+        mapSnapshot: {
+          id: "snapshot-1",
+          workspaceId: "workspace-1",
+          revision: "map-1",
+          mapState: seedMapState,
+          createdAt: "2026-06-23T12:00:00.000Z",
+          updatedAt: "2026-06-23T12:00:00.000Z",
+        },
+        listingLeads: [],
+        listingLedgerRevision: "ledger-1",
+        planningThreadCache: null,
+      }),
+    });
+  });
+
+  await page.route("**/api/workspace/onboarding", async (route) => {
+    const requestBody = route.request().postDataJSON();
+    onboardingRequests.push(requestBody);
+
+    expect(requestBody).toEqual({
+      operation: {
+        type: "completeSteps",
+        stepIds: ["set_ai_key"],
+      },
+    });
+
+    onboardingProgress = createOnboardingProgress({
+      completedSteps: {
+        set_ai_key: "2026-06-24T12:05:00.000Z",
+      },
+      updatedAt: "2026-06-24T12:05:00.000Z",
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, progress: onboardingProgress }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Getting started" })).toBeVisible();
+  await expect(page.getByText("Next: Add your OpenAI key")).toBeVisible();
+
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-test");
+  await page.getByRole("button", { name: "Save key" }).click();
+
+  await expect(page.getByRole("heading", { name: "OpenAI key saved" })).toBeVisible();
+  await expect(page.getByText("Complete: Add your OpenAI key")).toBeVisible();
+  expect(onboardingRequests).toContainEqual({
+    operation: {
+      type: "completeSteps",
+      stepIds: ["set_ai_key"],
+    },
+  });
+
+  await page.evaluate(() => {
+    window.localStorage.removeItem("sf-apt-hunt:openai-key");
+    window.sessionStorage.removeItem("sf-apt-hunt:openai-key");
+  });
+  await page.reload();
+
+  await expect(page.getByText("Complete: Add your OpenAI key")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "OpenAI key required" })).toBeVisible();
+});
+
 test("signed-in workspace planning chat ignores stale anonymous local cache", async ({ page, baseURL }) => {
   await page.context().addCookies([
     {
@@ -130,6 +228,7 @@ test("signed-in workspace planning chat ignores stale anonymous local cache", as
           userId: "user-1",
           name: "Apartment hunt",
           listingLedgerRevision: "ledger-1",
+          onboardingProgress: createOnboardingProgress(),
           createdAt: "2026-06-23T12:00:00.000Z",
           updatedAt: "2026-06-23T12:00:00.000Z",
         },
@@ -181,6 +280,7 @@ test("signed-in workspace listing actions do not persist the anonymous listing l
           userId: "user-1",
           name: "Apartment hunt",
           listingLedgerRevision: "ledger-rev-1",
+          onboardingProgress: createOnboardingProgress(),
           createdAt: "2026-06-23T12:00:00.000Z",
           updatedAt: "2026-06-23T12:00:00.000Z",
         },
@@ -296,6 +396,20 @@ function emptyPlanningContextSummary() {
     avoidAnchors: [],
     selectedZones: [],
     sourceStrictness: null,
+  };
+}
+
+function createOnboardingProgress(
+  overrides: Partial<OnboardingProgress> = {},
+): OnboardingProgress {
+  return {
+    version: 1,
+    dismissed: false,
+    expanded: true,
+    completedSteps: {},
+    lastHighlightedStepId: null,
+    updatedAt: "2026-06-24T12:00:00.000Z",
+    ...overrides,
   };
 }
 

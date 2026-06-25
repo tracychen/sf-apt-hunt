@@ -21,6 +21,8 @@ import type {
   MapSnapshot,
   MapState,
   MapZone,
+  OnboardingOperation,
+  OnboardingProgress,
   PlanningActionExecutionRecord,
   PlanningActionRecord,
   PlanningActionTarget,
@@ -36,6 +38,8 @@ import type {
   PostGeocodeCacheRequest,
   PostGeocodeCacheResponse,
   PolygonGeometry,
+  PutWorkspaceOnboardingRequest,
+  PutWorkspaceOnboardingResponse,
   ResearchExclusion,
   ResearchExclusionReason,
   ResearchSummary,
@@ -681,12 +685,75 @@ export const mapSnapshotSchema: z.ZodType<MapSnapshot> = z
   })
   .strict();
 
+export const onboardingStepIdSchema = z.enum([
+  "set_ai_key",
+  "ask_for_anchors",
+  "apply_map_suggestion",
+  "edit_anchor_meaning",
+  "ask_for_listings",
+  "review_listing",
+]);
+
+export const onboardingProgressSchema: z.ZodType<OnboardingProgress> = z
+  .object({
+    version: z.literal(1),
+    dismissed: z.boolean(),
+    expanded: z.boolean(),
+    completedSteps: z.partialRecord(onboardingStepIdSchema, z.string().datetime()),
+    lastHighlightedStepId: onboardingStepIdSchema.nullable(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const onboardingOperationSchema: z.ZodType<OnboardingOperation> =
+  z.discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("completeSteps"),
+        stepIds: z.array(onboardingStepIdSchema).min(1).max(6),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("setPanelState"),
+        dismissed: z.boolean().optional(),
+        expanded: z.boolean().optional(),
+        lastHighlightedStepId: onboardingStepIdSchema.nullable().optional(),
+      })
+      .strict(),
+    z.object({ type: z.literal("reset") }).strict(),
+  ]);
+
+export const putWorkspaceOnboardingRequestSchema: z.ZodType<PutWorkspaceOnboardingRequest> = z
+  .object({
+    operation: onboardingOperationSchema,
+  })
+  .strict();
+
+export const putWorkspaceOnboardingResponseSchema: z.ZodType<PutWorkspaceOnboardingResponse> =
+  z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), progress: onboardingProgressSchema }).strict(),
+    z
+      .object({
+        ok: z.literal(false),
+        error: z.enum([
+          "forbidden_origin",
+          "unauthorized",
+          "request_too_large",
+          "invalid_request",
+          "onboarding_update_failed",
+        ]),
+      })
+      .strict(),
+  ]);
+
 export const workspaceRecordSchema: z.ZodType<WorkspaceRecord> = z
   .object({
     id: idSchema,
     userId: idSchema,
     name: nameSchema,
     listingLedgerRevision: idSchema,
+    onboardingProgress: onboardingProgressSchema,
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })

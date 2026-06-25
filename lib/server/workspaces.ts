@@ -5,8 +5,15 @@ import { eq } from "drizzle-orm";
 import { requireDb } from "@/lib/db/client";
 import { mapSnapshots, workspaces } from "@/lib/db/schema";
 import { createRevision } from "@/lib/db/workspace-revisions";
-import type { WorkspaceMapSnapshot, WorkspaceRecord, WorkspaceResponse } from "@/lib/domain/types";
+import { onboardingProgressSchema } from "@/lib/domain/schemas";
+import type {
+  OnboardingProgress,
+  WorkspaceMapSnapshot,
+  WorkspaceRecord,
+  WorkspaceResponse,
+} from "@/lib/domain/types";
 import { seedMapState } from "@/lib/map/seed-data";
+import { createDefaultOnboardingProgress } from "@/lib/onboarding/progress";
 
 type WorkspaceRow = typeof workspaces.$inferSelect;
 type MapSnapshotRow = typeof mapSnapshots.$inferSelect;
@@ -76,17 +83,26 @@ export function serializeWorkspaceRecord(workspace: {
   userId: string;
   name: string;
   listingLedgerRevision: string;
+  onboardingProgress?: OnboardingProgress | null;
   createdAt: Date | string;
   updatedAt: Date | string;
 }): WorkspaceRecord {
+  const updatedAt = toIsoString(workspace.updatedAt);
+
   return {
     id: workspace.id,
     userId: workspace.userId,
     name: workspace.name,
     listingLedgerRevision: workspace.listingLedgerRevision,
+    onboardingProgress: normalizeOnboardingProgress(workspace.onboardingProgress, updatedAt),
     createdAt: toIsoString(workspace.createdAt),
-    updatedAt: toIsoString(workspace.updatedAt),
+    updatedAt,
   };
+}
+
+function normalizeOnboardingProgress(value: unknown, now = new Date().toISOString()) {
+  const parsed = onboardingProgressSchema.safeParse(value);
+  return parsed.success ? parsed.data : createDefaultOnboardingProgress(now);
 }
 
 export function serializeWorkspaceMapSnapshot(mapSnapshot: {

@@ -34,7 +34,10 @@ import type {
   SelectedMapEntity,
   VisibleMapLayers,
 } from "@/components/apartment-map/leaflet-map";
+import type { PlanningChatOnboardingMilestone } from "@/components/apartment-map/planning-chat-panel";
 import { Sidebar } from "@/components/apartment-map/sidebar";
+import { useOnboardingController } from "@/components/apartment-map/use-onboarding-controller";
+import { useOnboardingHighlights } from "@/components/apartment-map/use-onboarding-highlights";
 
 type MapPanelProps = {
   mapState: MapState;
@@ -165,6 +168,13 @@ export function ApartmentMapApp() {
         : [],
     [activeListingFilters, listingLeads, mapState, selectedZoneIds],
   );
+  const onboarding = useOnboardingController({
+    apiKey,
+    listingLeads,
+    mode: { kind: "local" },
+    planningThreadCache: null,
+  });
+  const onboardingHighlights = useOnboardingHighlights();
 
   useEffect(() => {
     const storedMapState = loadMapState();
@@ -279,6 +289,29 @@ export function ApartmentMapApp() {
   function updateApiKey(nextApiKey: string | null, nextRemembered: boolean) {
     setApiKey(nextApiKey);
     setRemembered(nextRemembered);
+    if (nextApiKey) {
+      onboarding.completeSteps(["set_ai_key"]);
+    }
+  }
+
+  function applyPlanningMapState(input: { mapState: MapState; mapRevision?: string | null }) {
+    updateMapState(input.mapState);
+    onboarding.completeSteps(["apply_map_suggestion"]);
+  }
+
+  function handlePlanningChatOnboardingMilestone(
+    milestone: PlanningChatOnboardingMilestone,
+  ) {
+    if (milestone.kind === "anchorProposalReceived") {
+      onboarding.completeSteps(["ask_for_anchors"]);
+      return;
+    }
+
+    onboarding.completeSteps(["ask_for_listings"]);
+  }
+
+  function handleAnchorSemanticEdit() {
+    onboarding.completeSteps(["edit_anchor_meaning"]);
   }
 
   function handlePlanningListingLeadChange({
@@ -291,6 +324,7 @@ export function ApartmentMapApp() {
     geocodeAuthorization: GeocodeAuthorization | null;
   }) {
     if (lead.status === "dismissed") {
+      onboarding.completeSteps(["review_listing"]);
       geocodeRunIdRef.current += 1;
       geocodeAbortRef.current?.abort();
       setListingLeads((current) =>
@@ -305,6 +339,8 @@ export function ApartmentMapApp() {
     setListingLeads((current) => upsertListingLead(current, nextLead));
 
     if (lead.status === "saved") {
+      onboarding.completeSteps(["review_listing"]);
+
       if (contextSummary) {
         setActiveListingFilters(planningFiltersFromContextSummary(contextSummary));
       }
@@ -385,15 +421,23 @@ export function ApartmentMapApp() {
         visibleLayers={visibleLayers}
         selectedZoneIds={selectedZoneIds}
         listings={listings}
+        onboarding={onboarding}
         planningResetToken={planningResetToken}
         planningOwnershipMode={{ kind: "local" }}
         sidebarNotice={null}
+        onboardingHighlightMessage={onboardingHighlights.message}
         onApiKeyChange={updateApiKey}
         onDeselectSelectedEntity={() => setSelectedEntity(null)}
         onImportMapState={importMapState}
         onMapStateChange={updateMapState}
-        onPlanningMapStateChange={({ mapState: nextMapState }) => updateMapState(nextMapState)}
+        onAnchorSemanticEdit={handleAnchorSemanticEdit}
+        onPlanningChatOnboardingMilestone={handlePlanningChatOnboardingMilestone}
+        onPlanningMapStateChange={applyPlanningMapState}
         onPlanningListingLeadChange={handlePlanningListingLeadChange}
+        onShowOnboardingStep={(stepId) => {
+          onboarding.setPanelState({ lastHighlightedStepId: stepId });
+          onboardingHighlights.showOnboardingStep(stepId);
+        }}
         onVisibleLayersChange={setVisibleLayers}
         onUndo={undoLastEdit}
         onReset={resetLocalMap}

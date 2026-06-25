@@ -557,6 +557,89 @@ test("planning chat renders listing cards without persisting the listing ledger 
   expect(geocodeRequestSeen).toBe(true);
 });
 
+test("task-based onboarding completes local workflow milestones", async ({ page }) => {
+  await page.route("**/api/ai/planning-chat", async (route) => {
+    const body = route.request().postDataJSON() as { message: string };
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        body.message.includes("listing")
+          ? createPlanningChatListingResponse()
+          : createPlanningChatMapProposalResponse(),
+      ),
+    });
+  });
+  await page.route("**/api/planning/actions/execute", async (route) => {
+    const body = route.request().postDataJSON() as {
+      payload?: { kind?: string };
+    };
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        body.payload?.kind === "listingSave"
+          ? createPlanningActionExecuteListingResponse()
+          : createPlanningActionExecuteMapResponse(),
+      ),
+    });
+  });
+  await page.route("**/api/geocode/listing", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        geocode: {
+          status: "ok",
+          coordinates: [-122.433, 37.789],
+          markerPrecision: "exact",
+          formattedAddress: "1234 Fillmore St, San Francisco, CA 94115, USA",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await saveOpenAiKeyThroughUi(page);
+  await expect(page.getByText("Complete: Add your OpenAI key")).toBeVisible();
+
+  await page.getByLabel("Ask planning chat").fill("Add pins for all Solidcore locations in SF");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Complete: Ask chat to add pins or corridors")).toBeVisible();
+
+  await page.getByRole("button", { name: "Apply selected" }).click();
+  await expect(page.getByText("Complete: Review a suggested map change")).toBeVisible();
+
+  await page.locator(".target-anchor-marker").first().click();
+  await page.getByLabel("Target purpose").fill("Favorite workout anchor");
+  await page.getByLabel("Target purpose").blur();
+  await expect(page.getByText("Complete: Give an anchor planning meaning")).toBeVisible();
+
+  await page.getByLabel("Ask planning chat").fill("Find listing near my pins");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Complete: Ask for listings near your priorities")).toBeVisible();
+
+  await page.getByRole("button", { name: "Save" }).first().click();
+  await expect(page.getByText("Getting started complete")).toBeVisible();
+});
+
+test("onboarding show me opens a highlight without completing the step", async ({ page }) => {
+  await page.goto("/");
+
+  await page
+    .locator("li", { hasText: "Ask chat to add pins or corridors" })
+    .getByRole("button", { name: "Show me" })
+    .click();
+
+  await expect(page.locator(".driver-popover")).toBeVisible();
+  await expect(page.getByText(/Complete: Ask chat to add pins or corridors/)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".driver-popover")).toHaveCount(0);
+});
+
 test("reset local map clears planning chat cache and warns when server reset fails", async ({ page }) => {
   await page.route("**/api/planning/reset", async (route) => {
     expect(route.request().headers()["x-sf-apt-installation-secret"]).toBeTruthy();
@@ -854,11 +937,14 @@ test("planning chat persists dismissed listing cards across refresh", async ({ p
   await page.getByRole("button", { name: "Send" }).click();
 
   await expect(page.getByText("Apartment planning")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Studio near Fillmore" })).toBeVisible();
-  await page.getByRole("button", { name: "Dismiss" }).first().click();
+  const listingCard = page
+    .locator("[data-onboarding-target='listing-card']")
+    .filter({ has: page.getByRole("link", { name: "Studio near Fillmore" }) });
+  await expect(listingCard).toBeVisible();
+  await listingCard.getByRole("button", { name: "Dismiss" }).click();
 
   await expect(page.getByText("Dismissed")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Dismiss" }).first()).toBeDisabled();
+  await expect(listingCard.getByRole("button", { name: "Dismiss" })).toBeDisabled();
 
   await page.reload();
 
@@ -896,7 +982,8 @@ test("undoes planning chat map actions with Ctrl+Z or Cmd+Z", async ({ page }) =
   await clickPolkCorridor(page);
   await expect(page.getByLabel("Corridor priority")).toHaveValue("high");
 
-  await page.getByRole("heading", { name: "SF Apartment Hunt" }).click();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
+  await page.getByRole("button", { name: "Copy map JSON" }).focus();
   await page.keyboard.press("Control+Z");
   await expect(page.getByLabel("Corridor priority")).toHaveValue("medium");
 
@@ -904,7 +991,8 @@ test("undoes planning chat map actions with Ctrl+Z or Cmd+Z", async ({ page }) =
   await clickPolkCorridor(page);
   await expect(page.getByLabel("Corridor priority")).toHaveValue("high");
 
-  await page.getByRole("heading", { name: "SF Apartment Hunt" }).click();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
+  await page.getByRole("button", { name: "Copy map JSON" }).focus();
   await page.keyboard.press("Meta+Z");
   await expect(page.getByLabel("Corridor priority")).toHaveValue("medium");
 });

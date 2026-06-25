@@ -18,6 +18,8 @@ import {
   type MapHistoryState,
 } from "@/components/apartment-map/apartment-map-app";
 import { Sidebar } from "@/components/apartment-map/sidebar";
+import { useOnboardingController } from "@/components/apartment-map/use-onboarding-controller";
+import { useOnboardingHighlights } from "@/components/apartment-map/use-onboarding-highlights";
 import {
   postGeocodeCacheResponseSchema,
   putWorkspaceMapResponseSchema,
@@ -30,6 +32,7 @@ import type {
   MapState,
   PlanningContextSummary,
 } from "@/lib/domain/types";
+import { createDefaultOnboardingProgress } from "@/lib/onboarding/progress";
 import { loadStoredOpenAiKey } from "@/lib/storage/api-key-storage";
 import {
   canonicalizeGeocodeCacheQuery,
@@ -44,6 +47,7 @@ import type {
   SelectedMapEntity,
   VisibleMapLayers,
 } from "@/components/apartment-map/leaflet-map";
+import type { PlanningChatOnboardingMilestone } from "@/components/apartment-map/planning-chat-panel";
 
 const loadingState: MapHistoryState = {
   current: {
@@ -95,6 +99,9 @@ export function PersistentApartmentMapApp({
   );
   const [planningResetToken, setPlanningResetToken] = useState(0);
   const [invalidatedActionIds, setInvalidatedActionIds] = useState<string[]>([]);
+  const [fallbackOnboardingProgress] = useState(() =>
+    createDefaultOnboardingProgress(new Date().toISOString()),
+  );
   const geocodeRunIdRef = useRef(0);
   const geocodeAbortRef = useRef<AbortController | null>(null);
   const mapRevisionRef = useRef(mapRevision);
@@ -115,6 +122,20 @@ export function PersistentApartmentMapApp({
         : [],
     [activeListingFilters, listingLeads, mapState, selectedZoneIds],
   );
+  const onboarding = useOnboardingController({
+    apiKey,
+    listingLeads,
+    mode: {
+      kind: "workspace",
+      initialProgress:
+        workspaceState?.workspace.onboardingProgress ??
+        initialState?.workspace.onboardingProgress ??
+        fallbackOnboardingProgress,
+    },
+    planningThreadCache:
+      workspaceState?.planningThreadCache ?? initialState?.planningThreadCache ?? null,
+  });
+  const onboardingHighlights = useOnboardingHighlights();
 
   useEffect(() => {
     mapRevisionRef.current = mapRevision;
@@ -247,6 +268,7 @@ export function PersistentApartmentMapApp({
     if (input.mapRevision) {
       setMapRevision(input.mapRevision);
     }
+    onboarding.completeSteps(["apply_map_suggestion"]);
   }
 
   const undoLastEdit = useCallback(() => {
@@ -406,6 +428,24 @@ export function PersistentApartmentMapApp({
   function updateApiKey(nextApiKey: string | null, nextRemembered: boolean) {
     setApiKey(nextApiKey);
     setRemembered(nextRemembered);
+    if (nextApiKey) {
+      onboarding.completeSteps(["set_ai_key"]);
+    }
+  }
+
+  function handlePlanningChatOnboardingMilestone(
+    milestone: PlanningChatOnboardingMilestone,
+  ) {
+    if (milestone.kind === "anchorProposalReceived") {
+      onboarding.completeSteps(["ask_for_anchors"]);
+      return;
+    }
+
+    onboarding.completeSteps(["ask_for_listings"]);
+  }
+
+  function handleAnchorSemanticEdit() {
+    onboarding.completeSteps(["edit_anchor_meaning"]);
   }
 
   async function persistGeocodeResult(lead: ListingLead) {
@@ -491,6 +531,7 @@ export function PersistentApartmentMapApp({
     }
 
     if (lead.status === "dismissed") {
+      onboarding.completeSteps(["review_listing"]);
       geocodeRunIdRef.current += 1;
       geocodeAbortRef.current?.abort();
       setListingLeads((current) =>
@@ -506,6 +547,8 @@ export function PersistentApartmentMapApp({
     if (lead.status !== "saved") {
       return;
     }
+
+    onboarding.completeSteps(["review_listing"]);
 
     if (contextSummary) {
       setActiveListingFilters(planningFiltersFromContextSummary(contextSummary));
@@ -603,6 +646,7 @@ export function PersistentApartmentMapApp({
         visibleLayers={visibleLayers}
         selectedZoneIds={selectedZoneIds}
         listings={listings}
+        onboarding={onboarding}
         planningResetToken={planningResetToken}
         planningOwnershipMode={{
           kind: "workspace",
@@ -612,12 +656,19 @@ export function PersistentApartmentMapApp({
           threadCache: workspaceState.planningThreadCache,
         }}
         sidebarNotice={sidebarNotice}
+        onboardingHighlightMessage={onboardingHighlights.message}
         onApiKeyChange={updateApiKey}
         onDeselectSelectedEntity={() => setSelectedEntity(null)}
         onImportMapState={importMapState}
         onMapStateChange={updateMapState}
+        onAnchorSemanticEdit={handleAnchorSemanticEdit}
+        onPlanningChatOnboardingMilestone={handlePlanningChatOnboardingMilestone}
         onPlanningMapStateChange={applyPlanningMapState}
         onPlanningListingLeadChange={handlePlanningListingLeadChange}
+        onShowOnboardingStep={(stepId) => {
+          onboarding.setPanelState({ lastHighlightedStepId: stepId });
+          onboardingHighlights.showOnboardingStep(stepId);
+        }}
         onVisibleLayersChange={setVisibleLayers}
         onUndo={undoLastEdit}
         onReset={resetWorkspaceMap}

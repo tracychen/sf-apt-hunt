@@ -6,20 +6,29 @@ import {
   applyCorridorMetadataEdit,
   type CorridorMetadataPatch,
 } from "@/components/apartment-map/leaflet-map-state";
+import type { AnchorSemanticEdit } from "@/components/apartment-map/target-editor";
 import type { MapState, TargetCorridor } from "@/lib/domain/types";
 
 type CorridorEditorProps = {
   mapState: MapState;
   corridor: TargetCorridor;
   onMapStateChange: (state: MapState) => void;
+  onSemanticEdit?: (edit: AnchorSemanticEdit) => void;
 };
+
+type CorridorSemanticField = Extract<AnchorSemanticEdit, { kind: "corridor" }>["field"];
 
 const corridorTags = ["fitness", "rent", "transit", "safety", "short-term"] as const;
 const MAX_CORRIDOR_NAME_LENGTH = 160;
 const MAX_CORRIDOR_TEXT_LENGTH = 2_000;
 const MAX_CORRIDOR_NOTES = 50;
 
-export function CorridorEditor({ mapState, corridor, onMapStateChange }: CorridorEditorProps) {
+export function CorridorEditor({
+  mapState,
+  corridor,
+  onMapStateChange,
+  onSemanticEdit,
+}: CorridorEditorProps) {
   const notesValue = corridor.notes.join("\n");
 
   function commitName(input: HTMLInputElement) {
@@ -28,7 +37,7 @@ export function CorridorEditor({ mapState, corridor, onMapStateChange }: Corrido
       return;
     }
 
-    commitPatch({ name: value });
+    commitPatch({ name: value }, "name");
   }
 
   function commitPriority(value: string) {
@@ -36,7 +45,7 @@ export function CorridorEditor({ mapState, corridor, onMapStateChange }: Corrido
       return;
     }
 
-    commitPatch({ priority: value });
+    commitPatch({ priority: value }, "priority");
   }
 
   function commitTag(tag: TargetCorridor["tags"][number], checked: boolean) {
@@ -44,24 +53,28 @@ export function CorridorEditor({ mapState, corridor, onMapStateChange }: Corrido
       ? [...corridor.tags, tag]
       : corridor.tags.filter((item) => item !== tag);
 
-    commitPatch({ tags: corridorTags.filter((item) => nextTags.includes(item)) });
+    commitPatch({ tags: corridorTags.filter((item) => nextTags.includes(item)) }, "tags");
   }
 
   function commitNotes(input: HTMLTextAreaElement) {
-    commitPatch({ notes: readNotes(input) });
+    commitPatch({ notes: readNotes(input) }, "notes");
   }
 
-  function commitPatch(patch: CorridorMetadataPatch) {
+  function commitPatch(patch: CorridorMetadataPatch, field: CorridorSemanticField) {
     const nextState = applyCorridorMetadataEdit(mapState, corridor.id, patch);
 
     if (nextState) {
       flushSync(() => onMapStateChange(nextState));
       closeOpenCorridorPopup();
+      onSemanticEdit?.({ kind: "corridor", corridorId: corridor.id, field });
     }
   }
 
   return (
-    <section className="border border-sidebar-border bg-background p-3 text-sm">
+    <section
+      className="border border-sidebar-border bg-background p-3 text-sm"
+      data-onboarding-target="anchor-editor"
+    >
       <h2 className="font-medium">Selected corridor</h2>
       <div className="mt-3 space-y-3">
         <label className="block text-xs font-medium" htmlFor="corridor-name">

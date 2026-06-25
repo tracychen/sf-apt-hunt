@@ -4,6 +4,7 @@ import { seedMapState } from "@/lib/map/seed-data";
 import {
   deleteDefaultWorkspaceForUser,
   getOrCreateDefaultWorkspace,
+  serializeWorkspaceRecord,
 } from "@/lib/server/workspaces";
 
 const dbMock = vi.hoisted(() => ({
@@ -31,6 +32,26 @@ describe("workspace helpers", () => {
     expect(result.workspace.listingLedgerRevision).toMatch(/^ledger-/);
     expect(result.mapSnapshot.mapState).toEqual(seedMapState);
     expect(result.mapSnapshot.revision).toMatch(/^map-/);
+  });
+
+  test("serializes a default onboarding progress until workspace persistence lands", () => {
+    expect(
+      serializeWorkspaceRecord({
+        id: "workspace-1",
+        userId: "user-1",
+        name: "Apartment hunt",
+        listingLedgerRevision: "ledger-123",
+        createdAt: new Date("2026-06-23T12:00:00.000Z"),
+        updatedAt: new Date("2026-06-23T12:05:00.000Z"),
+      }).onboardingProgress,
+    ).toEqual({
+      version: 1,
+      dismissed: false,
+      expanded: true,
+      completedSteps: {},
+      lastHighlightedStepId: null,
+      updatedAt: "2026-06-23T12:05:00.000Z",
+    });
   });
 
   test("returns the same workspace on repeated calls", async () => {

@@ -43,7 +43,10 @@ export function ApiKeyDialog({
   }
 
   return (
-    <section className="border border-sidebar-border bg-background p-3 text-sm">
+    <section
+      className="border border-sidebar-border bg-background p-3 text-sm"
+      data-onboarding-target="api-key"
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-medium">{hasApiKey ? "OpenAI key saved" : "OpenAI key required"}</h2>

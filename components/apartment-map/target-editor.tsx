@@ -5,17 +5,35 @@ import { flushSync } from "react-dom";
 import { applyTargetPlanningFieldEdit } from "@/components/apartment-map/leaflet-map-state";
 import type { MapState, TargetPoint } from "@/lib/domain/types";
 
+export type AnchorSemanticEdit =
+  | {
+      kind: "target";
+      targetId: string;
+      field: "purpose" | "influence" | "priority" | "radiusMinutes" | "notes" | "name";
+    }
+  | {
+      kind: "corridor";
+      corridorId: string;
+      field: "name" | "priority" | "tags" | "notes";
+    };
+
 type TargetEditorProps = {
   mapState: MapState;
   target: TargetPoint;
   onMapStateChange: (state: MapState) => void;
+  onSemanticEdit?: (edit: AnchorSemanticEdit) => void;
 };
 
 const MAX_TARGET_NAME_LENGTH = 160;
 const MAX_TARGET_TEXT_LENGTH = 2_000;
 const MAX_TARGET_NOTES = 50;
 
-export function TargetEditor({ mapState, target, onMapStateChange }: TargetEditorProps) {
+export function TargetEditor({
+  mapState,
+  target,
+  onMapStateChange,
+  onSemanticEdit,
+}: TargetEditorProps) {
   const notesValue = target.notes.join("\n");
 
   function commitPurpose(input: HTMLInputElement) {
@@ -27,6 +45,7 @@ export function TargetEditor({ mapState, target, onMapStateChange }: TargetEdito
     const nextState = applyTargetPlanningFieldEdit(mapState, target.id, { purpose: value });
     if (nextState) {
       commitMapState(nextState);
+      onSemanticEdit?.({ kind: "target", targetId: target.id, field: "purpose" });
     }
   }
 
@@ -39,6 +58,7 @@ export function TargetEditor({ mapState, target, onMapStateChange }: TargetEdito
     const nextState = applyTargetPlanningFieldEdit(mapState, target.id, { name: value });
     if (nextState) {
       commitMapState(nextState);
+      onSemanticEdit?.({ kind: "target", targetId: target.id, field: "name" });
     }
   }
 
@@ -48,6 +68,7 @@ export function TargetEditor({ mapState, target, onMapStateChange }: TargetEdito
 
     if (nextState) {
       commitMapState(nextState);
+      onSemanticEdit?.({ kind: "target", targetId: target.id, field: "notes" });
     }
   }
 
@@ -64,6 +85,7 @@ export function TargetEditor({ mapState, target, onMapStateChange }: TargetEdito
 
     if (nextState) {
       commitMapState(nextState);
+      onSemanticEdit?.({ kind: "target", targetId: target.id, field });
     }
   }
 
@@ -73,7 +95,10 @@ export function TargetEditor({ mapState, target, onMapStateChange }: TargetEdito
   }
 
   return (
-    <section className="border border-sidebar-border bg-background p-3 text-sm">
+    <section
+      className="border border-sidebar-border bg-background p-3 text-sm"
+      data-onboarding-target="anchor-editor"
+    >
       <h2 className="font-medium">Selected target</h2>
       <div className="mt-3 space-y-3">
         <label className="block text-xs font-medium" htmlFor="target-purpose">

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { GET as CLIENT_STATE_GET } from "@/app/api/workspace/client-state/route";
 import { DELETE, GET } from "@/app/api/workspace/route";
-import type { ListingLead } from "@/lib/domain/types";
+import type { ListingLead, OnboardingProgress } from "@/lib/domain/types";
 import { seedMapState } from "@/lib/map/seed-data";
 
 const sessionMock = vi.hoisted(() => ({
@@ -43,6 +43,7 @@ vi.mock("@/lib/server/workspaces", () => ({
       userId,
       name: "Apartment hunt",
       listingLedgerRevision: "ledger-123",
+      onboardingProgress: createOnboardingProgress(),
       createdAt: new Date("2026-06-23T12:00:00.000Z"),
       updatedAt: new Date("2026-06-23T12:00:00.000Z"),
     },
@@ -62,6 +63,7 @@ vi.mock("@/lib/server/workspaces", () => ({
       userId: string;
       name: string;
       listingLedgerRevision: string;
+      onboardingProgress: OnboardingProgress;
       createdAt: Date;
       updatedAt: Date;
     };
@@ -91,6 +93,7 @@ vi.mock("@/lib/server/workspaces", () => ({
     userId: string;
     name: string;
     listingLedgerRevision: string;
+    onboardingProgress: OnboardingProgress;
     createdAt: Date;
     updatedAt: Date;
   }) => ({
@@ -167,6 +170,7 @@ describe("GET /api/workspace", () => {
         userId: "user-1",
         name: "Apartment hunt",
         listingLedgerRevision: "ledger-123",
+        onboardingProgress: createOnboardingProgress(),
         createdAt: "2026-06-23T12:00:00.000Z",
         updatedAt: "2026-06-23T12:00:00.000Z",
       },
@@ -283,6 +287,18 @@ function createPlanningThreadCache() {
       updatedAt: "2026-06-23T12:00:00.000Z",
     },
     listingLedgerRevision: "ledger-123",
+  };
+}
+
+function createOnboardingProgress(overrides: Partial<OnboardingProgress> = {}): OnboardingProgress {
+  return {
+    version: 1,
+    dismissed: false,
+    expanded: true,
+    completedSteps: {},
+    lastHighlightedStepId: null,
+    updatedAt: "2026-06-24T12:00:00.000Z",
+    ...overrides,
   };
 }
 

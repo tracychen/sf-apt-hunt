@@ -7,6 +7,7 @@ import type {
   ListingDisplayCandidate,
   ListingLead,
   MapState,
+  OnboardingStepId,
   PlanningContextSummary,
 } from "@/lib/domain/types";
 import type { PlanningThreadCache } from "@/lib/storage/planning-chat-storage";
@@ -16,8 +17,16 @@ import type {
 } from "@/components/apartment-map/leaflet-map";
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { CorridorEditor } from "@/components/apartment-map/corridor-editor";
-import { PlanningChatPanel } from "@/components/apartment-map/planning-chat-panel";
-import { TargetEditor } from "@/components/apartment-map/target-editor";
+import { OnboardingPanel } from "@/components/apartment-map/onboarding-panel";
+import {
+  PlanningChatPanel,
+  type PlanningChatOnboardingMilestone,
+} from "@/components/apartment-map/planning-chat-panel";
+import {
+  TargetEditor,
+  type AnchorSemanticEdit,
+} from "@/components/apartment-map/target-editor";
+import type { OnboardingController } from "@/components/apartment-map/use-onboarding-controller";
 import { Button } from "@/components/ui/button";
 import { mapStateSchema } from "@/lib/domain/schemas";
 import { formatTargetLabel } from "@/lib/map/target-points";
@@ -36,15 +45,20 @@ export function Sidebar({
   visibleLayers,
   selectedZoneIds,
   listings,
+  onboarding,
   planningResetToken,
   planningOwnershipMode,
   sidebarNotice,
+  onboardingHighlightMessage,
   onApiKeyChange,
   onDeselectSelectedEntity,
   onImportMapState,
   onMapStateChange,
+  onAnchorSemanticEdit,
+  onPlanningChatOnboardingMilestone,
   onPlanningMapStateChange,
   onPlanningListingLeadChange,
+  onShowOnboardingStep,
   onVisibleLayersChange,
   onUndo,
   onReset,
@@ -60,6 +74,7 @@ export function Sidebar({
   visibleLayers: VisibleMapLayers;
   selectedZoneIds: string[];
   listings: ListingDisplayCandidate[];
+  onboarding: OnboardingController;
   planningResetToken: number;
   planningOwnershipMode:
     | { kind: "local" }
@@ -71,10 +86,13 @@ export function Sidebar({
         threadCache: PlanningThreadCache | null;
       };
   sidebarNotice: SidebarNotice;
+  onboardingHighlightMessage: string | null;
   onApiKeyChange: (key: string | null, remembered: boolean) => void;
   onDeselectSelectedEntity: () => void;
   onImportMapState: (state: MapState) => boolean | Promise<boolean>;
   onMapStateChange: (state: MapState) => void;
+  onAnchorSemanticEdit: (edit: AnchorSemanticEdit) => void;
+  onPlanningChatOnboardingMilestone: (milestone: PlanningChatOnboardingMilestone) => void;
   onPlanningMapStateChange: (input: {
     mapState: MapState;
     mapRevision?: string | null;
@@ -85,6 +103,7 @@ export function Sidebar({
     geocodeAuthorization: GeocodeAuthorization | null;
     listingLedgerRevision?: string | null;
   }) => void;
+  onShowOnboardingStep: (stepId: OnboardingStepId) => void;
   onVisibleLayersChange: (layers: VisibleMapLayers) => void;
   onUndo: () => void;
   onReset: () => boolean | Promise<boolean>;
@@ -197,7 +216,8 @@ export function Sidebar({
   const importConfirmationMessage = isWorkspaceMode
     ? "Review saved versions before continuing. Current pins, corridors, and zones will be replaced in this workspace. Pending reviewed map actions for the old revision will be disabled."
     : "Review saved versions before continuing. Current pins, corridors, zones, chat, and staged listings will be cleared from this workspace.";
-  const visibleNotice = sidebarNotice ?? (workspaceStatus ? { kind: "info", message: workspaceStatus } : null);
+  const visibleNotice =
+    sidebarNotice ?? (workspaceStatus ? { kind: "info", message: workspaceStatus } : null);
 
   return (
     <aside className="flex min-h-[42vh] flex-col bg-sidebar text-sidebar-foreground lg:max-h-screen lg:min-h-screen lg:overflow-y-auto">
@@ -214,6 +234,17 @@ export function Sidebar({
           Active shape: {describeSelectedEntity(selectedEntity, mapState)}
         </p>
       </div>
+
+      <OnboardingPanel
+        completedCount={onboarding.completedCount}
+        persistenceError={onboarding.persistenceError}
+        progress={onboarding.progress}
+        onDismiss={() => onboarding.setPanelState({ dismissed: true, expanded: false })}
+        onReset={onboarding.reset}
+        onReview={() => onboarding.setPanelState({ dismissed: false, expanded: true })}
+        onShowStep={onShowOnboardingStep}
+        highlightMessage={onboardingHighlightMessage}
+      />
 
       <div className="flex flex-wrap gap-2 border-b border-sidebar-border p-3">
         <Button disabled={!canUndo} variant="outline" onClick={onUndo}>
@@ -259,7 +290,10 @@ export function Sidebar({
       ) : null}
 
       <div className="space-y-4 p-4">
-        <section className="border border-sidebar-border bg-background p-3 text-sm">
+        <section
+          className="border border-sidebar-border bg-background p-3 text-sm"
+          data-onboarding-target="map-layers"
+        >
           <h2 className="font-medium">Map layers</h2>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
             {(["zones", "corridors", "targets", "listings"] as const).map((layer) => (
@@ -286,6 +320,9 @@ export function Sidebar({
               {visibleNotice.message}
             </p>
           ) : null}
+          {onboardingHighlightMessage ? (
+            <p className="mt-3 text-xs text-muted-foreground">{onboardingHighlightMessage}</p>
+          ) : null}
         </section>
 
         {selectedTarget ? (
@@ -293,6 +330,7 @@ export function Sidebar({
             mapState={mapState}
             target={selectedTarget}
             onMapStateChange={onMapStateChange}
+            onSemanticEdit={onAnchorSemanticEdit}
           />
         ) : null}
 
@@ -301,6 +339,7 @@ export function Sidebar({
             corridor={selectedCorridor}
             mapState={mapState}
             onMapStateChange={onMapStateChange}
+            onSemanticEdit={onAnchorSemanticEdit}
           />
         ) : null}
 
@@ -319,6 +358,7 @@ export function Sidebar({
           resetToken={planningResetToken}
           onPlanningMapStateChange={onPlanningMapStateChange}
           onPlanningListingLeadChange={onPlanningListingLeadChange}
+          onOnboardingMilestone={onPlanningChatOnboardingMilestone}
         />
       </div>
     </aside>

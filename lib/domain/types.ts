@@ -358,9 +358,53 @@ export type WorkspaceRecord = {
   userId: string;
   name: string;
   listingLedgerRevision: string;
+  onboardingProgress: OnboardingProgress;
   createdAt: string;
   updatedAt: string;
 };
+
+export type OnboardingStepId =
+  | "set_ai_key"
+  | "ask_for_anchors"
+  | "apply_map_suggestion"
+  | "edit_anchor_meaning"
+  | "ask_for_listings"
+  | "review_listing";
+
+export type OnboardingProgress = {
+  version: 1;
+  dismissed: boolean;
+  expanded: boolean;
+  completedSteps: Partial<Record<OnboardingStepId, string>>;
+  lastHighlightedStepId: OnboardingStepId | null;
+  updatedAt: string;
+};
+
+export type OnboardingOperation =
+  | { type: "completeSteps"; stepIds: OnboardingStepId[] }
+  | {
+      type: "setPanelState";
+      dismissed?: boolean;
+      expanded?: boolean;
+      lastHighlightedStepId?: OnboardingStepId | null;
+    }
+  | { type: "reset" };
+
+export type PutWorkspaceOnboardingRequest = {
+  operation: OnboardingOperation;
+};
+
+export type PutWorkspaceOnboardingResponse =
+  | { ok: true; progress: OnboardingProgress }
+  | {
+      ok: false;
+      error:
+        | "forbidden_origin"
+        | "unauthorized"
+        | "request_too_large"
+        | "invalid_request"
+        | "onboarding_update_failed";
+    };
 
 export type WorkspaceMapSnapshot = {
   id: string;
