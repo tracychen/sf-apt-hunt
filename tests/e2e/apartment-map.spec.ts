@@ -99,6 +99,52 @@ test("shows getting started overlay on the map instead of in the sidebar", async
   expect(overlayBox!.y).toBeGreaterThanOrEqual(mapBox!.y);
 });
 
+test("map UI chrome keeps controls separate from onboarding and uses app scrollbars", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto("/");
+
+  const overlay = page.getByTestId("map-onboarding-overlay");
+  const geomanToolbar = page.locator(".leaflet-pm-toolbar").first();
+  await expect(overlay.getByRole("heading", { name: "Getting started" })).toBeVisible();
+  await expect(geomanToolbar).toBeVisible();
+
+  const overlayBox = await overlay.boundingBox();
+  const toolbarBox = await geomanToolbar.boundingBox();
+  expect(overlayBox).not.toBeNull();
+  expect(toolbarBox).not.toBeNull();
+  expect(boxesOverlap(overlayBox!, toolbarBox!)).toBe(false);
+
+  const styles = await page.evaluate(() => {
+    const overlayElement = document.querySelector<HTMLElement>(
+      "[data-testid='map-onboarding-overlay'] > section",
+    );
+    const controlButton = document.querySelector<HTMLElement>(".leaflet-pm-toolbar a");
+
+    if (!overlayElement || !controlButton) {
+      throw new Error("Expected onboarding overlay and map control button.");
+    }
+
+    const overlayStyles = getComputedStyle(overlayElement);
+    const buttonStyles = getComputedStyle(controlButton);
+
+    return {
+      buttonBackground: buttonStyles.backgroundColor,
+      buttonBorderRadius: buttonStyles.borderRadius,
+      buttonBoxShadow: buttonStyles.boxShadow,
+      scrollbarColor: overlayStyles.scrollbarColor,
+      scrollbarWidth: overlayStyles.scrollbarWidth,
+    };
+  });
+
+  expect(styles.buttonBackground).not.toBe("rgb(255, 255, 255)");
+  expect(styles.buttonBorderRadius).toBe("0px");
+  expect(styles.buttonBoxShadow).toBe("none");
+  expect(styles.scrollbarColor).not.toBe("auto");
+  expect(styles.scrollbarWidth).toBe("thin");
+});
+
 test("target planning anchors show purpose labels and radius rings", async ({ page }) => {
   await loadSamplePlanningMap(page);
   await page.goto("/");
@@ -412,6 +458,17 @@ test("shows disabled AI state until a key is saved", async ({ page }) => {
     page.locator("form").getByText("AI requests are disabled until you save an OpenAI key."),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+});
+
+test("OpenAI key form hides the extra add-key action while editing", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Add OpenAI key" }).click();
+
+  await expect(page.getByLabel("OpenAI API key")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save key" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add OpenAI key" })).toHaveCount(0);
 });
 
 test("imports map json only after replace confirmation", async ({ page }) => {
@@ -1112,6 +1169,17 @@ async function saveOpenAiKeyThroughUi(page: Page) {
   await page.getByLabel("OpenAI API key").fill("sk-test");
   await page.getByRole("button", { name: "Save key" }).click();
   await expect(page.getByRole("heading", { name: "OpenAI key saved" })).toBeVisible();
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+function boxesOverlap(first: Box, second: Box) {
+  return !(
+    first.x + first.width <= second.x ||
+    second.x + second.width <= first.x ||
+    first.y + first.height <= second.y ||
+    second.y + second.height <= first.y
+  );
 }
 
 async function clickPolkCorridor(page: Page) {

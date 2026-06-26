@@ -130,12 +130,82 @@
   html {
     @apply font-mono;
   }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground), transparent 48%) transparent;
+  }
 }
 
 .apartment-leaflet-map {
   width: 100%;
   min-height: 58vh;
   height: 100%;
+}
+
+.apartment-leaflet-map ::-webkit-scrollbar,
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.apartment-leaflet-map ::-webkit-scrollbar-track,
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.apartment-leaflet-map ::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--muted-foreground), transparent 52%);
+  border: 2px solid transparent;
+  border-radius: 0;
+  background-clip: padding-box;
+}
+
+.apartment-leaflet-map ::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--foreground), transparent 45%);
+  background-clip: padding-box;
+}
+
+.leaflet-control-container .leaflet-control {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.leaflet-control-container .leaflet-bar {
+  border: 1px solid var(--border);
+}
+
+.leaflet-control-container .leaflet-bar a,
+.leaflet-control-container .leaflet-pm-toolbar a,
+.leaflet-control-container .leaflet-pm-toolbar button {
+  color: var(--foreground);
+  background: var(--muted) !important;
+  border-color: var(--border);
+  border-radius: var(--radius) !important;
+  box-shadow: none !important;
+  font-family: var(--font-mono);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.leaflet-control-container .leaflet-bar a:hover,
+.leaflet-control-container .leaflet-bar a:focus,
+.leaflet-control-container .leaflet-pm-toolbar a:hover,
+.leaflet-control-container .leaflet-pm-toolbar a:focus,
+.leaflet-control-container .leaflet-pm-toolbar button:hover,
+.leaflet-control-container .leaflet-pm-toolbar button:focus {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--muted), var(--foreground) 7%);
+  border-color: var(--ring);
+}
+
+.leaflet-control-container .leaflet-disabled {
+  color: var(--muted-foreground);
+  background: color-mix(in oklch, var(--muted), transparent 40%);
 }
 
 .target-anchor-marker {

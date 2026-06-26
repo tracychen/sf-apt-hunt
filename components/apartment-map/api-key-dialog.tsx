@@ -96,14 +96,16 @@ export function ApiKeyDialog({
         </form>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button disabled={!hasApiKey} variant="outline" onClick={handleClearKey}>
-          Clear key
-        </Button>
-        <Button type="button" variant="outline" onClick={() => setIsEditing(true)}>
-          {hasApiKey ? "Replace OpenAI key" : "Add OpenAI key"}
-        </Button>
-      </div>
+      {!isEditing ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button disabled={!hasApiKey} variant="outline" onClick={handleClearKey}>
+            Clear key
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setIsEditing(true)}>
+            {hasApiKey ? "Replace OpenAI key" : "Add OpenAI key"}
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }

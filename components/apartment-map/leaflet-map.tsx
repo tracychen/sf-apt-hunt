@@ -238,7 +238,7 @@ function GeomanControls() {
 
   useEffect(() => {
     map.pm.addControls({
-      position: "topleft",
+      position: "topright",
       drawMarker: false,
       drawCircleMarker: false,
       drawPolyline: false,
