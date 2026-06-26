@@ -30,7 +30,10 @@ test("renders editable apartment map shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByText("SF Apartment Hunt")).toBeVisible();
-  await expect(page.getByText("Neighborhood outlines are approximate references")).toBeVisible();
+  await expect(page.getByText("7 neighborhoods, 0 areas, 0 listings staged.")).toBeVisible();
+  await expect(
+    page.getByText("Neighborhood outlines are approximate references, not official boundaries."),
+  ).toHaveCount(0);
   await expect(page.locator(".leaflet-container")).toBeVisible();
   await expect(page.locator(".leaflet-pm-toolbar")).toBeVisible();
   await expect(page.locator(".leaflet-pm-icon-edit")).toBeVisible();

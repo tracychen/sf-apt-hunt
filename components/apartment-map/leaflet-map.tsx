@@ -750,14 +750,6 @@ export function LeafletMap({
         )) : null}
       </MapContainer>
 
-      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[450] max-w-md border border-border bg-background/95 p-3 text-xs text-foreground shadow-sm backdrop-blur sm:inset-x-auto sm:left-3">
-        <p>Neighborhood outlines are approximate references, not official boundaries.</p>
-        <p className="mt-1 text-muted-foreground">
-          {planningAreas.length} planning {planningAreas.length === 1 ? "area" : "areas"},{" "}
-          {listingPins.length} listing{" "}
-          {listingPins.length === 1 ? "pin" : "pins"}.
-        </p>
-      </div>
     </div>
   );
 }
