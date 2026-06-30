@@ -4,7 +4,9 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { requireDb } from "@/lib/db/client";
 import {
+  extensionConnectionTokens,
   facebookListingCaptures,
+  facebookListingImportAttempts,
   geocodeCacheEntries,
   listingLeads,
   mapSnapshots,
@@ -191,6 +193,12 @@ async function deleteWorkspaceProductRows(
   await database.delete(planningMessages).where(eq(planningMessages.workspaceId, workspaceId));
   await database.delete(planningThreads).where(eq(planningThreads.workspaceId, workspaceId));
   await database.delete(geocodeCacheEntries).where(eq(geocodeCacheEntries.workspaceId, workspaceId));
+  await database
+    .delete(facebookListingImportAttempts)
+    .where(eq(facebookListingImportAttempts.workspaceId, workspaceId));
+  await database
+    .delete(extensionConnectionTokens)
+    .where(eq(extensionConnectionTokens.workspaceId, workspaceId));
   await database
     .delete(facebookListingCaptures)
     .where(eq(facebookListingCaptures.workspaceId, workspaceId));

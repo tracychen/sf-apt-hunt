@@ -257,6 +257,81 @@ export type GeocodeCacheEntry = {
   updatedAt: string;
 };
 
+export type HousingDetails = {
+  listingType: "full_apartment" | "private_room" | "shared_room" | "roommate_search" | "unknown";
+  tenancyType: "new_lease" | "lease_takeover" | "sublet" | "month_to_month" | "unknown";
+  priceMonthly: number | null;
+  bedrooms: number | "studio" | null;
+  bathroom: "private" | "shared" | "unknown";
+  roommateCount: number | null;
+  locationText: string | null;
+  neighborhoodGuess: string;
+  availabilityStart: string | null;
+  availabilityEnd: string | null;
+  dateFlexibility: "fixed" | "flexible" | "unknown";
+  durationText: string | null;
+  furnished: boolean | null;
+  pets: "allowed" | "not_allowed" | "unknown";
+  notes: string[];
+};
+
+export type ExtensionScope = "facebook_listing_import";
+
+export type CreateExtensionConnectionRequest = {
+  extensionId: string;
+};
+
+export type CreateExtensionConnectionResponse =
+  | {
+      ok: true;
+      token: string;
+      expiresAt: string;
+      account: {
+        email: string;
+      };
+      workspace: {
+        id: string;
+        name: string;
+      };
+    }
+  | { ok: false; error: "unauthorized" | "invalid_request" | "extension_not_allowed" };
+
+export type RevokeExtensionTokenResponse =
+  | { ok: true }
+  | { ok: false; error: "unauthorized" | "token_expired" | "invalid_request" };
+
+export type FacebookListingImportRequest = {
+  idempotencyKey: string;
+  sourceSurface: "homeFeed" | "groupFeed" | "postPermalink";
+  sourceGroupId: string;
+  sourceGroupName: string;
+  sourceGroupUrl: string;
+  sourcePostUrl: string;
+  capturedText: string;
+  capturedAt: string;
+  parsedDraft: HousingDetails | null;
+  reviewedDetails: HousingDetails | null;
+  incompleteFlags: string[];
+};
+
+export type FacebookListingImportResponse =
+  | {
+      ok: true;
+      captureId: string;
+      lead: ListingLead;
+      listingLedgerRevision: string;
+    }
+  | {
+      ok: false;
+      error:
+        | "unauthorized"
+        | "token_expired"
+        | "invalid_request"
+        | "invalid_group_context"
+        | "idempotency_conflict"
+        | "import_failed";
+    };
+
 export type ListingPlanningSignal = {
   label: string;
   delta: number;

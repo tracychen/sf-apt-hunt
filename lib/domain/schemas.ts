@@ -9,6 +9,9 @@ import type {
   ImportWorkspaceMapRequest,
   ImportWorkspaceMapResponse,
   LineStringGeometry,
+  CreateExtensionConnectionRequest,
+  FacebookListingImportRequest,
+  HousingDetails,
   ListingCandidate,
   ListingDisplayCandidate,
   ListingLead,
@@ -123,6 +126,19 @@ const requiredTextSchema = z.string().min(1).max(MAX_TEXT_LENGTH);
 const longTextSchema = z.string().max(MAX_LONG_TEXT_LENGTH);
 const requiredLongTextSchema = z.string().min(1).max(MAX_LONG_TEXT_LENGTH);
 const urlSchema = z.string().url({ protocol: /^https?$/ }).max(MAX_URL_LENGTH);
+const facebookUrlSchema = z
+  .string()
+  .url({ protocol: /^https$/ })
+  .max(MAX_URL_LENGTH)
+  .refine(
+    (value) => {
+      const host = new URL(value).hostname;
+      return host === "facebook.com" || host.endsWith(".facebook.com");
+    },
+    {
+      message: "Only Facebook HTTPS URLs are allowed.",
+    },
+  );
 const listingCanonicalKeySchema = z
   .string()
   .min(1)
@@ -416,6 +432,56 @@ export const geocodeCacheEntrySchema: z.ZodType<GeocodeCacheEntry> = z
     result: geocodeCacheResultSchema,
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const extensionIdSchema = z.string().regex(/^[a-p]{32}$/);
+
+export const housingDetailsSchema: z.ZodType<HousingDetails> = z
+  .object({
+    listingType: z.enum([
+      "full_apartment",
+      "private_room",
+      "shared_room",
+      "roommate_search",
+      "unknown",
+    ]),
+    tenancyType: z.enum(["new_lease", "lease_takeover", "sublet", "month_to_month", "unknown"]),
+    priceMonthly: z.number().int().positive().nullable(),
+    bedrooms: z.union([z.number().int().nonnegative(), z.literal("studio")]).nullable(),
+    bathroom: z.enum(["private", "shared", "unknown"]),
+    roommateCount: z.number().int().nonnegative().nullable(),
+    locationText: textSchema.nullable(),
+    neighborhoodGuess: nameSchema,
+    availabilityStart: textSchema.nullable(),
+    availabilityEnd: textSchema.nullable(),
+    dateFlexibility: z.enum(["fixed", "flexible", "unknown"]),
+    durationText: textSchema.nullable(),
+    furnished: z.boolean().nullable(),
+    pets: z.enum(["allowed", "not_allowed", "unknown"]),
+    notes: notesSchema,
+  })
+  .strict();
+
+export const createExtensionConnectionRequestSchema: z.ZodType<CreateExtensionConnectionRequest> = z
+  .object({
+    extensionId: extensionIdSchema,
+  })
+  .strict();
+
+export const facebookListingImportRequestSchema: z.ZodType<FacebookListingImportRequest> = z
+  .object({
+    idempotencyKey: z.string().uuid(),
+    sourceSurface: z.enum(["homeFeed", "groupFeed", "postPermalink"]),
+    sourceGroupId: requiredTextSchema,
+    sourceGroupName: nameSchema,
+    sourceGroupUrl: facebookUrlSchema,
+    sourcePostUrl: facebookUrlSchema,
+    capturedText: requiredLongTextSchema,
+    capturedAt: z.string().datetime(),
+    parsedDraft: housingDetailsSchema.nullable(),
+    reviewedDetails: housingDetailsSchema.nullable(),
+    incompleteFlags: z.array(textSchema).max(MAX_CAVEATS),
   })
   .strict();
 

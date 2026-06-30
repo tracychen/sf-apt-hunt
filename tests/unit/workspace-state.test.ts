@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
+  extensionConnectionTokens,
   facebookListingCaptures,
+  facebookListingImportAttempts,
   geocodeCacheEntries,
   listingLeads,
   mapSnapshots,
@@ -189,6 +191,12 @@ describe("workspace-state", () => {
     expect(result.ok).toBe(true);
     expect(getCurrentDb().state.listingLeads.map((row) => row.workspaceId)).toEqual(["workspace-2"]);
     expect(getCurrentDb().state.geocodeCacheEntries.map((row) => row.workspaceId)).toEqual(["workspace-2"]);
+    expect(getCurrentDb().state.extensionConnectionTokens.map((row) => row.workspaceId)).toEqual([
+      "workspace-2",
+    ]);
+    expect(getCurrentDb().state.facebookListingImportAttempts.map((row) => row.workspaceId)).toEqual([
+      "workspace-2",
+    ]);
     expect(getCurrentDb().state.facebookListingCaptures.map((row) => row.workspaceId)).toEqual(["workspace-2"]);
     expect(getCurrentDb().state.planningThreads.map((row) => row.workspaceId)).toEqual(["workspace-2"]);
     expect(getCurrentDb().state.planningMessages.map((row) => row.workspaceId)).toEqual(["workspace-2"]);
@@ -347,6 +355,14 @@ function createWorkspaceStateDbMock() {
     geocodeCacheEntries: [
       createWorkspaceScopedRow("cache-1", "workspace-1"),
       createWorkspaceScopedRow("cache-other", "workspace-2"),
+    ],
+    extensionConnectionTokens: [
+      { id: "token-1", workspaceId: "workspace-1" },
+      { id: "token-2", workspaceId: "workspace-2" },
+    ],
+    facebookListingImportAttempts: [
+      { id: "attempt-1", workspaceId: "workspace-1" },
+      { id: "attempt-2", workspaceId: "workspace-2" },
     ],
     facebookListingCaptures: [
       createWorkspaceScopedRow("capture-1", "workspace-1"),
@@ -531,6 +547,14 @@ function getTableRows(
     return state.geocodeCacheEntries;
   }
 
+  if (table === extensionConnectionTokens) {
+    return state.extensionConnectionTokens;
+  }
+
+  if (table === facebookListingImportAttempts) {
+    return state.facebookListingImportAttempts;
+  }
+
   if (table === facebookListingCaptures) {
     return state.facebookListingCaptures;
   }
@@ -570,6 +594,16 @@ function setTableRows(
 
   if (table === geocodeCacheEntries) {
     state.geocodeCacheEntries = rows as typeof state.geocodeCacheEntries;
+    return;
+  }
+
+  if (table === extensionConnectionTokens) {
+    state.extensionConnectionTokens = rows as typeof state.extensionConnectionTokens;
+    return;
+  }
+
+  if (table === facebookListingImportAttempts) {
+    state.facebookListingImportAttempts = rows as typeof state.facebookListingImportAttempts;
     return;
   }
 
@@ -648,6 +682,8 @@ function readColumnValue(record: Record<string, unknown>, column: unknown) {
     case planningThreads.id:
     case listingLeads.id:
     case geocodeCacheEntries.id:
+    case extensionConnectionTokens.id:
+    case facebookListingImportAttempts.id:
     case facebookListingCaptures.id:
       return record.id;
     case mapSnapshots.workspaceId:
@@ -657,6 +693,8 @@ function readColumnValue(record: Record<string, unknown>, column: unknown) {
     case planningThreads.workspaceId:
     case listingLeads.workspaceId:
     case geocodeCacheEntries.workspaceId:
+    case extensionConnectionTokens.workspaceId:
+    case facebookListingImportAttempts.workspaceId:
     case facebookListingCaptures.workspaceId:
       return record.workspaceId;
     case mapSnapshots.revision:

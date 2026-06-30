@@ -1,0 +1,132 @@
+body {
+  margin: 0;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #28251f;
+  background: #fffdfa;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+h1,
+p,
+section {
+  margin: 0;
+}
+
+h1 {
+  font-size: 18px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #777064;
+}
+
+.capture-panel,
+form {
+  display: grid;
+  gap: 10px;
+}
+
+.capture-panel {
+  padding: 10px;
+  border: 1px solid #d9d3c8;
+  background: #f8f5ef;
+}
+
+.capture-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.capture-line {
+  display: grid;
+  gap: 2px;
+}
+
+.capture-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #777064;
+}
+
+.capture-value,
+.capture-link {
+  overflow-wrap: anywhere;
+}
+
+.capture-link {
+  color: #5c554a;
+}
+
+.capture-text {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #d9d3c8;
+  background: #fffdfa;
+  white-space: pre-wrap;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+}
+
+label > span {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #777064;
+}
+
+input,
+select,
+textarea,
+button {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #d9d3c8;
+  background: #fffdfa;
+  padding: 8px 10px;
+  font: inherit;
+  color: inherit;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+button {
+  background: #f4f1eb;
+  cursor: pointer;
+  text-align: left;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.actions {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 2px;
+  background: #fffdfa;
+}
+
+.status {
+  min-height: 16px;
+  color: #777064;
+}

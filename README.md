@@ -51,6 +51,19 @@ npm run db:migrate
 
 The signed-in app stores workspace map state, listing leads, geocode cache entries, and planning chat state in Postgres. The OpenAI API key remains browser-local.
 
+### Facebook saver extension local setup
+
+1. Start the app with `npm run dev`.
+2. Open `chrome://extensions`.
+3. Enable Developer Mode.
+4. Choose "Load unpacked" and select the repository `extension/` directory.
+5. Copy the loaded extension id.
+6. Set `EXTENSION_ALLOWED_IDS=<copied id>` in `.env.local`.
+7. Restart `npm run dev`.
+8. In the extension popup, click `Connect Apt Hunt`.
+9. Add a Facebook group to the allowlist.
+10. Open a group post and click `Save to Apt Hunt`.
+
 ## OpenAI Key Behavior
 
 The public app does not use a server-owned OpenAI key. Each visitor provides their own key in the UI before using assistant or listing search features.

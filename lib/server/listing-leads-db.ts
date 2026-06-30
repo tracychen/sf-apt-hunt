@@ -7,12 +7,12 @@ import { geocodeCacheEntries, listingLeads, workspaces } from "@/lib/db/schema";
 import { createRevision } from "@/lib/db/workspace-revisions";
 import type {
   GeocodeCacheEntry,
-  ListingLead,
   ListingsResponse,
   PatchListingResponse,
   PostGeocodeCacheRequest,
   PostGeocodeCacheResponse,
 } from "@/lib/domain/types";
+import { serializeListingLead, toIsoString } from "@/lib/server/listing-leads/serialize";
 
 type ListingLeadRow = typeof listingLeads.$inferSelect;
 
@@ -287,29 +287,6 @@ function mergeLeadCandidateGeocodeResult(
   };
 }
 
-function serializeListingLead(lead: {
-  canonicalUrl: string;
-  firstSeenAt: Date | string;
-  lastSeenAt: Date | string;
-  lastSearchQuery: string;
-  seenCount: number;
-  status: ListingLead["status"];
-  candidate: ListingLead["candidate"];
-}): ListingLead {
-  return {
-    canonicalUrl: lead.canonicalUrl,
-    firstSeenAt: toIsoString(lead.firstSeenAt),
-    lastSeenAt: toIsoString(lead.lastSeenAt),
-    lastSearchQuery: lead.lastSearchQuery,
-    seenCount: lead.seenCount,
-    status: lead.status,
-    candidate: {
-      ...lead.candidate,
-      url: lead.canonicalUrl,
-    },
-  };
-}
-
 function serializeGeocodeCacheEntry(entry: {
   id: string;
   workspaceId: string;
@@ -328,8 +305,4 @@ function serializeGeocodeCacheEntry(entry: {
     createdAt: toIsoString(entry.createdAt),
     updatedAt: toIsoString(entry.updatedAt),
   };
-}
-
-function toIsoString(value: Date | string) {
-  return typeof value === "string" ? value : value.toISOString();
 }

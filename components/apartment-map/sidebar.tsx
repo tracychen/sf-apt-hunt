@@ -17,6 +17,7 @@ import type {
 import { ApiKeyDialog } from "@/components/apartment-map/api-key-dialog";
 import { AreaEditor } from "@/components/apartment-map/area-editor";
 import { CorridorEditor } from "@/components/apartment-map/corridor-editor";
+import { ExtensionDiscoveryCard } from "@/components/apartment-map/extension-discovery-card";
 import {
   PlanningChatPanel,
   type PlanningChatOnboardingMilestone,
@@ -305,6 +306,8 @@ export function Sidebar({
             </p>
           ) : null}
         </section>
+
+        <ExtensionDiscoveryCard ownershipMode={ownershipMode} />
 
         {selectedTarget ? (
           <TargetEditor

@@ -39,6 +39,35 @@ export async function requireCurrentUserId(request?: Request) {
   return userId;
 }
 
+export async function getCurrentUser(request?: Request) {
+  const userId = await getCurrentUserId(request);
+
+  if (!userId) {
+    return null;
+  }
+
+  if (!process.env.DATABASE_URL) {
+    return { id: userId, email: "dev@example.local" };
+  }
+
+  const { getAuth } = await import("@/lib/server/auth/config");
+  const session = await getAuth().api.getSession({
+    headers: request ? request.headers : await headers(),
+  });
+
+  return session?.user ? { id: session.user.id, email: session.user.email } : null;
+}
+
+export async function requireCurrentUser(request?: Request) {
+  const user = await getCurrentUser(request);
+
+  if (!user) {
+    throw new UnauthorizedError();
+  }
+
+  return user;
+}
+
 export class UnauthorizedError extends Error {
   constructor() {
     super("Unauthorized");

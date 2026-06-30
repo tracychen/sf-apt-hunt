@@ -1,0 +1,8 @@
+.apt-hunt-save-button {
+  margin: 8px 0 0;
+  border: 1px solid #d9d3c8;
+  background: #fffdfa;
+  color: #28251f;
+  padding: 6px 8px;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}

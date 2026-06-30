@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Apt Hunt Review</title>
+    <link rel="stylesheet" href="review.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Apt Hunt</p>
+      <h1>Review listing</h1>
+
+      <section id="capture" class="capture-panel"></section>
+
+      <form id="review-form">
+        <label>
+          <span>Price/month</span>
+          <input name="priceMonthly" inputmode="numeric" />
+        </label>
+
+        <label>
+          <span>Listing type</span>
+          <select name="listingType">
+            <option value="unknown">Unknown</option>
+            <option value="full_apartment">Full apartment</option>
+            <option value="private_room">Private room</option>
+            <option value="shared_room">Shared room</option>
+            <option value="roommate_search">Roommate search</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Tenancy type</span>
+          <select name="tenancyType">
+            <option value="unknown">Unknown</option>
+            <option value="new_lease">New lease</option>
+            <option value="lease_takeover">Lease takeover</option>
+            <option value="sublet">Sublet</option>
+            <option value="month_to_month">Month to month</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Location</span>
+          <input name="locationText" />
+        </label>
+
+        <label>
+          <span>Neighborhood</span>
+          <input name="neighborhoodGuess" />
+        </label>
+
+        <label>
+          <span>Bedrooms</span>
+          <input name="bedrooms" />
+        </label>
+
+        <label>
+          <span>Bathroom</span>
+          <select name="bathroom">
+            <option value="unknown">Unknown</option>
+            <option value="private">Private</option>
+            <option value="shared">Shared</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Roommates</span>
+          <input name="roommateCount" inputmode="numeric" />
+        </label>
+
+        <label>
+          <span>Start date</span>
+          <input name="availabilityStart" />
+        </label>
+
+        <label>
+          <span>End date</span>
+          <input name="availabilityEnd" />
+        </label>
+
+        <label>
+          <span>Duration</span>
+          <input name="durationText" />
+        </label>
+
+        <label>
+          <span>Notes</span>
+          <textarea name="notes"></textarea>
+        </label>
+
+        <div class="actions">
+          <button type="button" id="parse-with-ai">Parse with AI</button>
+          <button type="submit">Save reviewed</button>
+          <button type="button" id="save-incomplete">Save incomplete</button>
+        </div>
+      </form>
+
+      <p id="status" class="status" aria-live="polite"></p>
+    </main>
+
+    <script type="module" src="review.js"></script>
+  </body>
+</html>

@@ -1,0 +1,91 @@
+body {
+  width: 320px;
+  margin: 0;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #28251f;
+  background: #fffdfa;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+section {
+  display: grid;
+  gap: 8px;
+}
+
+button,
+input {
+  border: 1px solid #d9d3c8;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+button {
+  background: #f4f1eb;
+  text-align: left;
+  cursor: pointer;
+}
+
+input {
+  min-width: 0;
+  background: #fffdfa;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #777064;
+}
+
+h1,
+h2,
+p,
+ul {
+  margin: 0;
+}
+
+h1 {
+  font-size: 18px;
+}
+
+h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #777064;
+}
+
+.stack {
+  display: grid;
+  gap: 8px;
+}
+
+.status,
+.group-name {
+  font-weight: 600;
+}
+
+.meta,
+.group-url {
+  color: #777064;
+}
+
+.group-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.group-item {
+  display: grid;
+  gap: 6px;
+}
+
+.secondary {
+  padding: 6px 8px;
+}

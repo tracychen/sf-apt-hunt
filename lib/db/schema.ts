@@ -7,10 +7,14 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 import type {
+  ExtensionScope,
+  FacebookListingImportResponse,
   GeocodeCacheEntry,
+  HousingDetails,
   ListingCandidate,
   MapState,
   OnboardingProgress,
@@ -249,23 +253,6 @@ export const geocodeCacheEntries = pgTable(
   ],
 );
 
-export type HousingDetails = {
-  listingType: "full_apartment" | "private_room" | "shared_room" | "roommate_search" | "unknown";
-  tenancyType: "new_lease" | "lease_takeover" | "sublet" | "month_to_month" | "unknown";
-  priceMonthly: number | null;
-  bedrooms: number | "studio" | null;
-  bathroom: "private" | "shared" | "unknown";
-  roommateCount: number | null;
-  locationText: string | null;
-  neighborhoodGuess: string;
-  availabilityStart: string | null;
-  availabilityEnd: string | null;
-  dateFlexibility: "fixed" | "flexible" | "unknown";
-  durationText: string | null;
-  furnished: boolean | null;
-  pets: "allowed" | "not_allowed" | "unknown";
-};
-
 export const facebookListingCaptures = pgTable(
   "facebook_listing_capture",
   {
@@ -291,5 +278,67 @@ export const facebookListingCaptures = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("facebook_capture_workspace_created_idx").on(table.workspaceId, table.createdAt)],
+  (table) => [
+    index("facebook_capture_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    uniqueIndex("facebook_capture_workspace_post_url_unique").on(
+      table.workspaceId,
+      table.sourcePostUrl,
+    ),
+  ],
+);
+
+export const extensionConnectionTokens = pgTable(
+  "extension_connection_token",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    extensionId: text("extension_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    scope: text("scope", { enum: ["facebook_listing_import"] }).$type<ExtensionScope>().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("extension_connection_token_hash_unique").on(table.tokenHash),
+    index("extension_connection_workspace_extension_idx").on(table.workspaceId, table.extensionId),
+  ],
+);
+
+export const facebookListingImportAttempts = pgTable(
+  "facebook_listing_import_attempt",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    captureId: text("capture_id")
+      .notNull()
+      .references(() => facebookListingCaptures.id, { onDelete: "cascade" }),
+    listingLeadId: text("listing_lead_id")
+      .notNull()
+      .references(() => listingLeads.id, { onDelete: "cascade" }),
+    successfulResponse: jsonb("successful_response")
+      .$type<{
+        captureId: Extract<FacebookListingImportResponse, { ok: true }>["captureId"];
+        leadCanonicalUrl: string;
+        listingLedgerRevision: Extract<FacebookListingImportResponse, { ok: true }>["listingLedgerRevision"];
+      }>()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("facebook_import_attempt_workspace_idempotency_unique").on(
+      table.workspaceId,
+      table.idempotencyKey,
+    ),
+  ],
 );
