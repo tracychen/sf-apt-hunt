@@ -1,1 +1,1 @@
-ALTER TABLE "workspace" ADD COLUMN "onboarding_progress" jsonb;
+ALTER TABLE "workspace" ADD COLUMN IF NOT EXISTS "onboarding_progress" jsonb;

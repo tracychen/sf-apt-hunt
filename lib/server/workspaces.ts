@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { requireDb } from "@/lib/db/client";
 import { mapSnapshots, workspaces } from "@/lib/db/schema";
@@ -18,8 +18,11 @@ import { createDefaultOnboardingProgress } from "@/lib/onboarding/progress";
 type WorkspaceRow = typeof workspaces.$inferSelect;
 type MapSnapshotRow = typeof mapSnapshots.$inferSelect;
 
+let workspaceSchemaCompatibilityPromise: Promise<void> | null = null;
+
 export async function getOrCreateDefaultWorkspace(userId: string, now = new Date()) {
   const database = requireDb();
+  await ensureWorkspaceSchemaCompatibility(database);
 
   const workspaceId = `workspace-${crypto.randomUUID()}`;
   const listingLedgerRevision = createRevision("ledger");
@@ -67,6 +70,18 @@ export async function getOrCreateDefaultWorkspace(userId: string, now = new Date
     .returning();
 
   return { workspace, mapSnapshot };
+}
+
+async function ensureWorkspaceSchemaCompatibility(database: ReturnType<typeof requireDb>) {
+  workspaceSchemaCompatibilityPromise ??= database
+    .execute(sql`ALTER TABLE "workspace" ADD COLUMN IF NOT EXISTS "onboarding_progress" jsonb`)
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      workspaceSchemaCompatibilityPromise = null;
+      throw error;
+    });
+
+  await workspaceSchemaCompatibilityPromise;
 }
 
 export async function deleteDefaultWorkspaceForUser(userId: string) {

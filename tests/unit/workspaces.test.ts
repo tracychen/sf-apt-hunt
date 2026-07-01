@@ -13,6 +13,7 @@ const dbMock = vi.hoisted(() => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (_column: unknown, value: unknown) => ({ value }),
+  sql: (strings: TemplateStringsArray) => ({ sql: strings.join("") }),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -96,6 +97,9 @@ function createWorkspaceDbMock() {
   const snapshotsByWorkspace = new Map<string, SnapshotValue>();
 
   return {
+    async execute() {
+      return undefined;
+    },
     insert() {
       return {
         values(value: WorkspaceValue | SnapshotValue) {
