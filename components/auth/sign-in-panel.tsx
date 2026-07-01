@@ -1,9 +1,6 @@
 "use client";
 
-import Link from "next/link";
-
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 
 export function SignInPanel() {
   return (
@@ -13,12 +10,9 @@ export function SignInPanel() {
         <p className="mt-2 text-sm text-muted-foreground">
           Sign in to sync maps, listings, and planning history across devices.
         </p>
-        <Link
-          className={cn(buttonVariants(), "mt-4 flex w-full")}
-          href="/api/auth/sign-in/google"
-        >
+        <GoogleSignInButton className="mt-4 w-full">
           Sign in with Google
-        </Link>
+        </GoogleSignInButton>
       </section>
     </main>
   );

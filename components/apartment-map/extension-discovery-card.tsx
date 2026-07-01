@@ -1,7 +1,4 @@
-import Link from "next/link";
-
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 
 export function ExtensionDiscoveryCard({
   ownershipMode,
@@ -51,12 +48,9 @@ export function ExtensionDiscoveryCard({
           <p className="mt-2 text-xs text-muted-foreground">
             Sign in to sync Facebook saves across devices.
           </p>
-          <Link
-            className={cn(buttonVariants({ size: "sm" }), "mt-3 w-full")}
-            href="/api/auth/sign-in/google"
-          >
+          <GoogleSignInButton className="mt-3 w-full" size="sm">
             Sign in to use extension
-          </Link>
+          </GoogleSignInButton>
         </>
       )}
     </section>

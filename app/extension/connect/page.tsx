@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 import { extensionIdSchema } from "@/lib/domain/schemas";
 import { getCurrentUser } from "@/lib/server/auth/session";
 import { isAllowedExtensionId } from "@/lib/server/extension/connections";
@@ -17,10 +16,20 @@ export default async function ExtensionConnectPage({
   const user = await getCurrentUser();
 
   if (!user) {
-    redirect(
-      `/api/auth/sign-in/google?callbackURL=${encodeURIComponent(
-        `/extension/connect?extensionId=${extensionId}`,
-      )}`,
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-6">
+        <p className="text-xs uppercase text-muted-foreground">Apt Hunt extension</p>
+        <h1 className="text-2xl font-semibold">Connect browser extension</h1>
+        <p className="text-sm text-muted-foreground">
+          Sign in with the same account you use for Apt Hunt to connect this extension.
+        </p>
+        <GoogleSignInButton
+          callbackURL={`/extension/connect?extensionId=${extensionId}`}
+          className="w-full"
+        >
+          Sign in with Google
+        </GoogleSignInButton>
+      </main>
     );
   }
 

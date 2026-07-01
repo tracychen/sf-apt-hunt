@@ -17,7 +17,7 @@ describe("ExtensionDiscoveryCard", () => {
     expect(container.textContent).toContain("Setup extension");
     expect(container.textContent).toContain("Load unpacked");
     expect(container.textContent).toContain("EXTENSION_ALLOWED_IDS");
-    expect(container.querySelector("a[href='/api/auth/sign-in/google']")).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
 
     unmount();
   });
@@ -28,7 +28,7 @@ describe("ExtensionDiscoveryCard", () => {
     expect(container.textContent).toContain("Facebook saver extension");
     expect(container.textContent).toContain("Sign in to sync Facebook saves across devices.");
     expect(container.textContent).toContain("Sign in to use extension");
-    expect(container.querySelector("a[href='/api/auth/sign-in/google']")).not.toBeNull();
+    expect(container.querySelector("button")).not.toBeNull();
     expect(container.textContent).not.toContain("EXTENSION_ALLOWED_IDS");
 
     unmount();
