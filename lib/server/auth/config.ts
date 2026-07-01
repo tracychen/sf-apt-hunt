@@ -4,6 +4,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 import { requireDb } from "@/lib/db/client";
+import { accounts, sessions, users, verifications } from "@/lib/db/schema";
 
 type AuthEnv = {
   baseURL: string;
@@ -18,6 +19,12 @@ function createAuth() {
   return betterAuth({
     database: drizzleAdapter(requireDb(), {
       provider: "pg",
+      schema: {
+        user: users,
+        session: sessions,
+        account: accounts,
+        verification: verifications,
+      },
     }),
     socialProviders: {
       google: {

@@ -55,4 +55,30 @@ describe("auth config env handling", () => {
     expect(drizzleAdapterMock).not.toHaveBeenCalled();
     expect(betterAuthMock).not.toHaveBeenCalled();
   });
+
+  test("passes Better Auth's expected Drizzle schema model names to the adapter", async () => {
+    process.env.DATABASE_URL = "postgres://example:example@127.0.0.1:5432/sf_apt_hunt";
+    process.env.BETTER_AUTH_SECRET = "secret";
+    process.env.BETTER_AUTH_URL = "https://hunt.apartments";
+    process.env.GOOGLE_CLIENT_ID = "google-client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "google-client-secret";
+
+    const authConfig = await import("@/lib/server/auth/config");
+
+    authConfig.getAuth();
+
+    expect(drizzleAdapterMock).toHaveBeenCalledWith(
+      { db: "mock-db" },
+      {
+        provider: "pg",
+        schema: expect.objectContaining({
+          user: expect.any(Object),
+          session: expect.any(Object),
+          account: expect.any(Object),
+          verification: expect.any(Object),
+        }),
+      },
+    );
+    expect(betterAuthMock).toHaveBeenCalledTimes(1);
+  });
 });
