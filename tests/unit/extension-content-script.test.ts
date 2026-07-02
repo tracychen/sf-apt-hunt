@@ -16,6 +16,10 @@ const contentScript = readFileSync(
   fileURLToPath(new URL("../../extension/content-script.js", import.meta.url)),
   "utf8",
 );
+const reviewerFixturePage = readFileSync(
+  fileURLToPath(new URL("../../app/extension/reviewer-fixture/page.tsx", import.meta.url)),
+  "utf8",
+);
 
 type AllowlistedGroup = {
   id: string;
@@ -27,6 +31,47 @@ type ExtensionMessage = {
 };
 
 describe("Facebook content script", () => {
+  test("hosted reviewer fixture contains the visible attribution and post links needed by the content script", () => {
+    expect(reviewerFixturePage).toContain("<article");
+    expect(reviewerFixturePage).toContain("https://www.facebook.com/groups/apt-hunt-reviewer-fixture");
+    expect(reviewerFixturePage).toContain(
+      "https://www.facebook.com/groups/apt-hunt-reviewer-fixture/posts/reviewer-listing-1",
+    );
+  });
+
+  test("injects a save button on the hosted reviewer fixture and captures its listing text", async () => {
+    const { document, messages, window } = await loadContentScript(
+      [
+        `<article id="reviewer-fixture">`,
+        `<a href="https://www.facebook.com/groups/apt-hunt-reviewer-fixture">Apt Hunt Reviewer Housing</a>`,
+        `<a href="https://www.facebook.com/groups/apt-hunt-reviewer-fixture/posts/reviewer-listing-1">View listing post</a>`,
+        `<p>Sunny one-bedroom apartment near Duboce Park. $2,750/month with laundry in building.</p>`,
+        `</article>`,
+      ].join(""),
+      "https://hunt.apartments/extension/reviewer-fixture",
+      [{ id: "apt-hunt-reviewer-fixture" }],
+    );
+    const button = document.querySelector("#reviewer-fixture .apt-hunt-save-button");
+
+    expect(button).not.toBeNull();
+
+    button?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const reviewMessages = messages.filter(
+      (message) => message.type === "apt-hunt-review-capture",
+    );
+
+    expect(reviewMessages.at(-1)?.capture).toMatchObject({
+      sourceGroupId: "apt-hunt-reviewer-fixture",
+      sourceGroupName: "Apt Hunt Reviewer Housing",
+      sourceGroupUrl: "https://www.facebook.com/groups/apt-hunt-reviewer-fixture",
+      sourcePostUrl:
+        "https://www.facebook.com/groups/apt-hunt-reviewer-fixture/posts/reviewer-listing-1",
+      capturedText: expect.stringContaining("Sunny one-bedroom apartment near Duboce Park"),
+    });
+  });
+
   test("injects save buttons on the home feed only for posts with local visible allowlisted group attribution", async () => {
     const { document } = await loadContentScript(
       [

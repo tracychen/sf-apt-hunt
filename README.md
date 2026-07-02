@@ -53,6 +53,8 @@ The signed-in app stores workspace map state, listing leads, geocode cache entri
 
 ### Facebook saver extension local setup
 
+For unlisted Chrome Web Store packaging and release steps, see `docs/extension-publishing.md`.
+
 1. Start the app with `npm run dev`.
 2. Open `chrome://extensions`.
 3. Enable Developer Mode.

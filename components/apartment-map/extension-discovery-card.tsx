@@ -1,11 +1,15 @@
 import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
+import { getValidChromeExtensionUrl } from "@/lib/extension/chrome-store-url";
 
 export function ExtensionDiscoveryCard({
   ownershipMode,
+  chromeExtensionUrl = process.env.NEXT_PUBLIC_CHROME_EXTENSION_URL,
 }: {
   ownershipMode: "local" | "workspace";
+  chromeExtensionUrl?: string | null;
 }) {
   const isWorkspaceMode = ownershipMode === "workspace";
+  const validChromeExtensionUrl = getValidChromeExtensionUrl(chromeExtensionUrl);
 
   return (
     <section
@@ -27,8 +31,25 @@ export function ExtensionDiscoveryCard({
           <p className="mt-2 text-xs text-muted-foreground">
             Save reviewed Facebook housing posts into this workspace.
           </p>
+          {validChromeExtensionUrl ? (
+            <a
+              className="mt-3 block border border-sidebar-border px-3 py-2 text-center text-xs font-medium"
+              href={validChromeExtensionUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Install Chrome Extension
+            </a>
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Chrome Web Store install is not ready for public install yet.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            After installing, open the extension popup and choose Connect Apt Hunt.
+          </p>
           <details className="mt-3 border border-sidebar-border bg-muted/30 p-2">
-            <summary className="cursor-pointer text-xs font-medium">Setup extension</summary>
+            <summary className="cursor-pointer text-xs font-medium">Developer setup</summary>
             <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
               <li>
                 Open <code className="text-foreground">chrome://extensions</code> and Load unpacked from{" "}
